@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Chores">
+<meta name="theme-color" content="#D9E1E5">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="manifest" href="manifest.json">
+<title>Chores</title>
+<style>
+  :root {
+    --wall: #D9E1E5;
+    --sheet: #F8FAFB;
+    --ink: #1D2B36;
+    --muted: #5B6B77;
+    --line: #C9D3D9;
+    --blue: #285E8E;
+    --good: #3D8B5F;
+    --soon: #D39B17;
+    --late: #C2412D;
+    --never: #9AA7B0;
+    --font: "Avenir Next", "Avenir", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; background: var(--wall); color: var(--ink); font-family: var(--font); }
+  body { -webkit-text-size-adjust: 100%; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  button { font-family: var(--font); touch-action: manipulation; cursor: pointer; }
+
+  .wrap { max-width: 980px; margin: 0 auto; padding: 22px 22px 40px; }
+
+  /* Header */
+  .top { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 18px; }
+  .day { font-size: 40px; font-weight: 700; letter-spacing: -0.5px; line-height: 1; }
+  .date { font-size: 20px; color: var(--muted); font-weight: 500; margin-top: 6px; }
+  .right { text-align: right; }
+  .clock { font-size: 40px; font-weight: 500; line-height: 1; letter-spacing: -0.5px; }
+  .tools { margin-top: 12px; }
+  .btn { display: inline-block; border: 0; border-radius: 10px; padding: 11px 18px; font-size: 18px; font-weight: 600; background: var(--sheet); color: var(--ink); margin-left: 8px; }
+  .btn:active { opacity: 0.6; }
+  .btn.primary { background: var(--blue); color: #fff; }
+  .btn.danger { background: transparent; color: var(--late); padding-left: 0; padding-right: 0; margin-left: 0; }
+  .btn.danger.armed { background: var(--late); color: #fff; padding-left: 18px; padding-right: 18px; }
+
+  /* Board */
+  .sheet { background: var(--sheet); border-radius: 14px; overflow: hidden; box-shadow: 0 1px 0 rgba(29,43,54,0.08), 0 8px 24px -12px rgba(29,43,54,0.25); }
+  .cols { display: flex; padding: 12px 22px 10px 40px; font-size: 15px; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--line); }
+  .cols .c1 { -webkit-box-flex: 1; flex: 1; }
+  .cols .c2 { width: 36%; }
+  .editnote { padding: 12px 22px; font-size: 16px; color: var(--blue); font-weight: 500; border-bottom: 1px solid var(--line); background: #EAF1F7; }
+
+  .row { position: relative; display: flex; align-items: center; min-height: 84px; border-bottom: 1px solid var(--line); background: var(--sheet); -webkit-transition: background-color 0.6s; transition: background-color 0.6s; }
+  .row:last-child { border-bottom: 0; }
+  .row:active { background: #EEF2F4; }
+  .row.flash { background: #DCEFE3; -webkit-transition: none; transition: none; }
+
+  /* Freshness bar: drains as a chore ages */
+  .bar { align-self: stretch; width: 18px; background: #E6EBEE; position: relative; margin-right: 20px; }
+  .fill { position: absolute; left: 0; right: 0; bottom: 0; -webkit-transition: height 0.5s ease-out; transition: height 0.5s ease-out; }
+  .good .fill { background: var(--good); }
+  .soon .fill { background: var(--soon); }
+  .late .bar { background: var(--late); }
+  .never .bar { background: repeating-linear-gradient(45deg, #E6EBEE, #E6EBEE 6px, #D3DADF 6px, #D3DADF 12px); }
+  .open .fill { background: var(--never); }
+
+  .main { -webkit-box-flex: 1; flex: 1; padding: 14px 12px 14px 0; min-width: 0; }
+  .name { font-size: 26px; font-weight: 600; line-height: 1.15; letter-spacing: -0.2px; }
+  .room { font-size: 16px; color: var(--muted); margin-top: 3px; }
+  .last { width: 36%; padding: 14px 22px 14px 0; }
+  .when { font-size: 22px; font-weight: 500; }
+  .sub { font-size: 16px; margin-top: 3px; font-weight: 600; color: var(--muted); }
+  .good .sub { color: var(--good); }
+  .soon .sub { color: #A87908; }
+  .late .sub { color: var(--late); }
+  .never .when { color: var(--never); }
+
+  .move { display: flex; flex-direction: column; margin-right: 16px; }
+  .move button { border: 0; background: #E6EBEE; color: var(--ink); width: 54px; height: 34px; font-size: 18px; border-radius: 8px; margin: 3px 0; }
+  .move button:active { background: var(--line); }
+  .move button[disabled] { opacity: 0.3; }
+
+  .empty { padding: 50px 30px; text-align: center; font-size: 20px; color: var(--muted); }
+  .actions { margin-top: 16px; display: flex; justify-content: space-between; }
+  .actions .btn { margin-left: 0; }
+
+  /* Toast */
+  .toast { position: fixed; left: 50%; bottom: 28px; -webkit-transform: translate(-50%, 140px); transform: translate(-50%, 140px); background: var(--ink); color: #fff; border-radius: 12px; padding: 14px 14px 14px 22px; font-size: 18px; font-weight: 500; display: flex; align-items: center; max-width: 92%; -webkit-transition: -webkit-transform 0.25s; transition: transform 0.25s; z-index: 15; }
+  .toast.show { -webkit-transform: translate(-50%, 0); transform: translate(-50%, 0); }
+  .toast span { margin-right: 18px; }
+  .toast button { border: 0; background: rgba(255,255,255,0.16); color: #fff; font-size: 18px; font-weight: 600; padding: 9px 16px; border-radius: 8px; }
+  .toast button.hide { display: none; }
+
+  .warn { display: none; background: var(--late); color: #fff; padding: 12px 18px; border-radius: 10px; margin-bottom: 14px; font-size: 17px; font-weight: 500; }
+  .warn.show { display: block; }
+
+  /* Sheets (modals) */
+  .overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(29,43,54,0.45); z-index: 20; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .overlay.show { display: block; }
+  .modal { background: var(--sheet); border-radius: 16px; max-width: 620px; margin: 40px auto; padding: 24px 26px; -webkit-user-select: text; user-select: text; }
+  .modal h2 { margin: 0 0 18px; font-size: 28px; font-weight: 700; letter-spacing: -0.3px; }
+  .modal h3 { margin: 24px 0 8px; font-size: 18px; font-weight: 600; color: var(--muted); }
+  .field { margin-bottom: 16px; }
+  .field label { display: block; font-size: 16px; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
+  .field input, .field select, .modal textarea { width: 100%; font-family: var(--font); font-size: 20px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink); -webkit-appearance: none; }
+  .field select { background: #fff url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='9'%3E%3Cpath d='M1 1l6 6 6-6' stroke='%235B6B77' stroke-width='2' fill='none'/%3E%3C/svg%3E") no-repeat right 16px center; padding-right: 40px; }
+  .modal textarea { font-size: 14px; height: 150px; font-family: Menlo, Courier, monospace; }
+  .hint { font-size: 15px; color: var(--muted); margin: 6px 0 0; line-height: 1.4; }
+  .error { color: var(--late); font-size: 16px; font-weight: 500; margin-top: 8px; min-height: 1px; }
+  .mfoot { display: flex; justify-content: space-between; align-items: center; margin-top: 22px; }
+  .mfoot .btn { margin-left: 8px; }
+  .hist { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+  .hist li { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 18px; }
+  .hist button { border: 0; background: none; color: var(--late); font-size: 16px; font-weight: 600; padding: 8px 4px; }
+  .hist .none { color: var(--muted); }
+  .split { display: flex; }
+  .split .field { -webkit-box-flex: 1; flex: 1; }
+  .split .field + .field { margin-left: 12px; }
+  .hidden { display: none !important; }
+
+  @media (max-width: 700px) {
+    .wrap { padding: 14px 12px 30px; }
+    .day, .clock { font-size: 30px; }
+    .name { font-size: 21px; }
+    .when { font-size: 18px; }
+    .cols .c2, .last { width: 40%; }
+    .bar { width: 12px; margin-right: 14px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .row, .fill, .toast { -webkit-transition: none; transition: none; }
+  }
+</style>
+</head>
+<body ontouchstart="">
+<div class="wrap">
+  <div class="top">
+    <div>
+      <div class="day" id="day"></div>
+      <div class="date" id="date"></div>
+    </div>
+    <div class="right">
+      <div class="clock" id="clock"></div>
+      <div class="tools">
+        <button class="btn" id="sortBtn"></button>
+        <button class="btn primary" id="editBtn">Edit board</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="warn" id="warn">Changes couldn't be saved on this iPad. Make a backup from Edit board before closing the app.</div>
+
+  <div class="sheet">
+    <div class="cols" id="cols"><div class="c1">Chore</div><div class="c2">Last done</div></div>
+    <div class="editnote hidden" id="editnote">Tap a chore to change or delete it. Use the arrows to reorder.</div>
+    <div id="list"></div>
+  </div>
+
+  <div class="actions hidden" id="actions">
+    <button class="btn primary" id="addBtn">Add chore</button>
+    <button class="btn" id="backupBtn">Back up or restore</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"><span id="toastText"></span><button id="undoBtn">Undo</button></div>
+
+<!-- Chore editor -->
+<div class="overlay" id="editorOverlay">
+  <div class="modal">
+    <h2 id="editorTitle">Edit chore</h2>
+    <div class="field">
+      <label for="fName">Chore</label>
+      <input id="fName" type="text" autocomplete="off" autocapitalize="sentences" placeholder="e.g. Clean the fridge">
+    </div>
+    <div class="field">
+      <label for="fRoom">Room or note (optional)</label>
+      <input id="fRoom" type="text" autocomplete="off" autocapitalize="words" placeholder="e.g. Kitchen">
+    </div>
+    <div class="split">
+      <div class="field">
+        <label for="fFreq">How often</label>
+        <select id="fFreq">
+          <option value="0">No set schedule</option>
+          <option value="1">Daily</option>
+          <option value="2">Every 2 days</option>
+          <option value="3">Every 3 days</option>
+          <option value="7">Weekly</option>
+          <option value="14">Every 2 weeks</option>
+          <option value="30">Monthly</option>
+          <option value="60">Every 2 months</option>
+          <option value="90">Every 3 months</option>
+          <option value="180">Every 6 months</option>
+          <option value="365">Yearly</option>
+          <option value="custom">Custom…</option>
+        </select>
+      </div>
+      <div class="field hidden" id="customWrap">
+        <label for="fDays">Every how many days</label>
+        <input id="fDays" type="number" inputmode="numeric" pattern="[0-9]*" min="1" max="999">
+      </div>
+    </div>
+    <p class="hint">With a schedule, the bar beside the chore drains and turns yellow, then red, as it comes due.</p>
+    <div class="error" id="editorError"></div>
+
+    <div id="histWrap">
+      <h3>Recent completions</h3>
+      <ul class="hist" id="hist"></ul>
+    </div>
+
+    <div class="mfoot">
+      <button class="btn danger" id="deleteBtn">Delete chore</button>
+      <div>
+        <button class="btn" id="cancelBtn">Cancel</button>
+        <button class="btn primary" id="saveBtn">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Backup / restore -->
+<div class="overlay" id="backupOverlay">
+  <div class="modal">
+    <h2>Back up or restore</h2>
+    <h3 style="margin-top:0">Back up</h3>
+    <p class="hint">Copy this text and paste it into Notes or an email to yourself. It contains every chore and its history.</p>
+    <textarea id="exportText" readonly></textarea>
+    <div style="margin-top:10px"><button class="btn primary" id="copyBtn" style="margin-left:0">Copy backup</button></div>
+
+    <h3>Restore</h3>
+    <p class="hint">Paste a backup here to replace everything on the board.</p>
+    <textarea id="importText" placeholder="Paste backup text"></textarea>
+    <div class="error" id="importError"></div>
+    <div class="mfoot">
+      <button class="btn danger" id="restoreBtn">Restore from backup</button>
+      <button class="btn" id="closeBackupBtn">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var KEY = 'choreboard.v1';
+  var DAY = 86400000;
+  var MAX_LOG = 60;
+
+  var state;
+  var editing = false;
+  var editId = null;          // chore being edited, null = new chore
+  var lastAction = null;      // { id, ts } for undo
+  var toastTimer = null;
+  var deleteArmed = false;
+  var restoreArmed = false;
+
+  function $(id) { return document.getElementById(id); }
+
+  function uid() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
+
+  function esc(s) {
+    return String(s).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
+
+  /* ---------- Data ---------- */
+
+  function defaults() {
+    var list = [
+      ['Wipe kitchen counters', 'Kitchen', 1],
+      ['Take out garbage and recycling', 'Curbside', 7],
+      ['Vacuum main floor', 'Main floor', 7],
+      ['Clean bathrooms', 'Bathrooms', 7],
+      ['Change bed sheets', 'Bedrooms', 14],
+      ['Mop floors', 'Kitchen and entry', 14],
+      ['Dust surfaces', 'Whole house', 14],
+      ['Clean out the fridge', 'Kitchen', 30],
+      ['Replace furnace filter', 'Basement', 90]
+    ];
+    return {
+      version: 1,
+      sort: 'urgent',
+      chores: list.map(function (c) {
+        return { id: uid(), name: c[0], room: c[1], freq: c[2], log: [] };
+      })
+    };
+  }
+
+  function isValid(d) {
+    return !!d && Array.isArray(d.chores) && d.chores.every(function (c) {
+      return c && typeof c.name === 'string' && Array.isArray(c.log);
+    });
+  }
+
+  function normalize(d) {
+    d.version = 1;
+    if (d.sort !== 'manual' && d.sort !== 'urgent') d.sort = 'urgent';
+    d.chores.forEach(function (c) {
+      if (!c.id) c.id = uid();
+      c.room = c.room ? String(c.room) : '';
+      c.freq = parseInt(c.freq, 10) || 0;
+      c.log = c.log.filter(function (t) { return typeof t === 'number' && t > 0; })
+                   .sort(function (a, b) { return b - a; })
+                   .slice(0, MAX_LOG);
+    });
+    return d;
+  }
+
+  function load() {
+    try {
+      var raw = localStorage.getItem(KEY);
+      if (raw) {
+        var d = JSON.parse(raw);
+        if (isValid(d)) return normalize(d);
+      }
+    } catch (e) { /* fall through to defaults */ }
+    return defaults();
+  }
+
+  function save() {
+    try {
+      localStorage.setItem(KEY, JSON.stringify(state));
+      $('warn').className = 'warn';
+    } catch (e) {
+      $('warn').className = 'warn show';
+    }
+  }
+
+  function find(id) {
+    for (var i = 0; i < state.chores.length; i++) {
+      if (state.chores[i].id === id) return state.chores[i];
+    }
+    return null;
+  }
+
+  /* ---------- Dates ---------- */
+
+  function startOfDay(ts) { var d = new Date(ts); d.setHours(0, 0, 0, 0); return d.getTime(); }
+  function addDays(ts, n) { var d = new Date(ts); d.setDate(d.getDate() + n); return d.getTime(); }
+  function daysBetween(a, b) { return Math.round((startOfDay(b) - startOfDay(a)) / DAY); }
+
+  function fmtTime(ts) {
+    return new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  }
+
+  function whenText(ts, now) {
+    var dd = daysBetween(ts, now);
+    var d = new Date(ts);
+    if (dd === 0) return 'Today, ' + fmtTime(ts);
+    if (dd === 1) return 'Yesterday, ' + fmtTime(ts);
+    if (dd < 7) return d.toLocaleDateString([], { weekday: 'long' }) + ', ' + fmtTime(ts);
+    var opts = { month: 'short', day: 'numeric' };
+    if (d.getFullYear() !== new Date(now).getFullYear()) opts.year = 'numeric';
+    return d.toLocaleDateString([], opts);
+  }
+
+  function fullWhen(ts) {
+    var d = new Date(ts);
+    return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) + ', ' + fmtTime(ts);
+  }
+
+  function freqLabel(n) {
+    var map = { 1: 'Daily', 7: 'Weekly', 14: 'Every 2 weeks', 30: 'Monthly', 365: 'Yearly' };
+    return map[n] || ('Every ' + n + ' days');
+  }
+
+  // Works out colour, bar level and the line under "last done"
+  function status(c, now) {
+    var last = c.log.length ? c.log[0] : null;
+    if (!last) {
+      return { cls: 'never', fill: 0, when: 'Never', sub: c.freq ? freqLabel(c.freq) : 'Not done yet', score: 1e9 };
+    }
+    var ago = daysBetween(last, now);
+    if (!c.freq) {
+      return {
+        cls: 'open', fill: 1, when: whenText(last, now),
+        sub: ago === 0 ? 'Done today' : (ago === 1 ? '1 day ago' : ago + ' days ago'),
+        score: -1e6 + ago   // unscheduled chores sort to the bottom
+      };
+    }
+    var due = addDays(startOfDay(last), c.freq);
+    var dueEnd = addDays(due, 1);
+    var left = daysBetween(now, due);
+    var soonAt = Math.max(0, Math.round(c.freq * 0.2));
+    var cls = left < 0 ? 'late' : (left <= soonAt ? 'soon' : 'good');
+    var fill = Math.max(0, Math.min(1, (dueEnd - now) / (c.freq * DAY)));
+    var sub;
+    if (left > 1) sub = 'Due in ' + left + ' days';
+    else if (left === 1) sub = 'Due tomorrow';
+    else if (left === 0) sub = 'Due today';
+    else if (left === -1) sub = 'Overdue by 1 day';
+    else sub = 'Overdue by ' + (-left) + ' days';
+    return { cls: cls, fill: fill, when: whenText(last, now), sub: sub, score: (now - dueEnd) / (c.freq * DAY) };
+  }
+
+  /* ---------- Rendering ---------- */
+
+  function renderClock() {
+    var now = new Date();
+    $('day').textContent = now.toLocaleDateString([], { weekday: 'long' });
+    $('date').textContent = now.toLocaleDateString([], { month: 'long', day: 'numeric' });
+    $('clock').textContent = fmtTime(now.getTime());
+  }
+
+  function render() {
+    renderClock();
+    var now = Date.now();
+    var items = state.chores.map(function (c, i) { return { c: c, s: status(c, now), i: i }; });
+
+    if (!editing && state.sort === 'urgent') {
+      items.sort(function (a, b) { return (b.s.score - a.s.score) || (a.i - b.i); });
+    }
+
+    $('sortBtn').textContent = state.sort === 'urgent' ? 'Sort: most due' : 'Sort: my order';
+    $('sortBtn').className = editing ? 'btn hidden' : 'btn';
+    $('editBtn').textContent = editing ? 'Done' : 'Edit board';
+    $('cols').className = editing ? 'cols hidden' : 'cols';
+    $('editnote').className = editing ? 'editnote' : 'editnote hidden';
+    $('actions').className = editing ? 'actions' : 'actions hidden';
+
+    if (!items.length) {
+      $('list').innerHTML = '<div class="empty">' + (editing
+        ? 'The board is empty. Tap Add chore to put one on it.'
+        : 'No chores yet. Tap Edit board, then Add chore.') + '</div>';
+      return;
+    }
+
+    var html = items.map(function (it, idx) {
+      var c = it.c, s = it.s;
+      var move = '';
+      if (editing) {
+        move = '<div class="move">' +
+          '<button data-move="-1" aria-label="Move up"' + (idx === 0 ? ' disabled' : '') + '>&#9650;</button>' +
+          '<button data-move="1" aria-label="Move down"' + (idx === items.length - 1 ? ' disabled' : '') + '>&#9660;</button>' +
+          '</div>';
+      }
+      return '<div class="row ' + s.cls + '" data-id="' + esc(c.id) + '">' +
+        '<div class="bar"><div class="fill" style="height:' + Math.round(s.fill * 100) + '%"></div></div>' +
+        '<div class="main"><div class="name">' + esc(c.name) + '</div>' +
+          (c.room ? '<div class="room">' + esc(c.room) + '</div>' : '') + '</div>' +
+        (editing ? move :
+          '<div class="last"><div class="when">' + esc(s.when) + '</div><div class="sub">' + esc(s.sub) + '</div></div>') +
+        '</div>';
+    }).join('');
+    $('list').innerHTML = html;
+  }
+
+  /* ---------- Toast ---------- */
+
+  function toast(text, withUndo) {
+    $('toastText').textContent = text;
+    $('undoBtn').className = withUndo ? '' : 'hide';
+    $('toast').className = 'toast show';
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () {
+      $('toast').className = 'toast';
+      lastAction = null;
+    }, withUndo ? 7000 : 2500);
+  }
+
+  /* ---------- Actions ---------- */
+
+  function logChore(id) {
+    var c = find(id);
+    if (!c) return;
+    var now = Date.now();
+    if (c.log.length && now - c.log[0] < 3000) return; // ignore accidental double taps
+    c.log.unshift(now);
+    if (c.log.length > MAX_LOG) c.log.length = MAX_LOG;
+    save();
+    lastAction = { id: id, ts: now };
+    render();
+    var row = document.querySelector('.row[data-id="' + id + '"]');
+    if (row) {
+      row.className += ' flash';
+      setTimeout(function () { row.className = row.className.replace(' flash', ''); }, 50);
+    }
+    toast('Marked done: ' + c.name, true);
+  }
+
+  function undo() {
+    if (!lastAction) return;
+    var c = find(lastAction.id);
+    if (c) {
+      var i = c.log.indexOf(lastAction.ts);
+      if (i >= 0) c.log.splice(i, 1);
+      save();
+      render();
+    }
+    lastAction = null;
+    toast('Undone', false);
+  }
+
+  function move(id, dir) {
+    var i = -1;
+    for (var k = 0; k < state.chores.length; k++) if (state.chores[k].id === id) i = k;
+    var j = i + dir;
+    if (i < 0 || j < 0 || j >= state.chores.length) return;
+    var tmp = state.chores[i];
+    state.chores[i] = state.chores[j];
+    state.chores[j] = tmp;
+    save();
+    render();
+  }
+
+  /* ---------- Editor ---------- */
+
+  var PRESETS = ['0', '1', '2', '3', '7', '14', '30', '60', '90', '180', '365'];
+
+  function openEditor(id) {
+    editId = id;
+    var c = id ? find(id) : null;
+    $('editorTitle').textContent = c ? 'Edit chore' : 'Add chore';
+    $('fName').value = c ? c.name : '';
+    $('fRoom').value = c ? c.room : '';
+    var f = c ? String(c.freq) : '7';
+    if (PRESETS.indexOf(f) >= 0) {
+      $('fFreq').value = f;
+      $('fDays').value = '';
+    } else {
+      $('fFreq').value = 'custom';
+      $('fDays').value = f;
+    }
+    syncCustom();
+    $('editorError').textContent = '';
+    deleteArmed = false;
+    $('deleteBtn').textContent = 'Delete chore';
+    $('deleteBtn').className = c ? 'btn danger' : 'btn danger hidden';
+    $('histWrap').className = c ? '' : 'hidden';
+    renderHistory();
+    $('editorOverlay').className = 'overlay show';
+    $('editorOverlay').scrollTop = 0;
+  }
+
+  function renderHistory() {
+    var c = editId ? find(editId) : null;
+    if (!c) { $('hist').innerHTML = ''; return; }
+    if (!c.log.length) {
+      $('hist').innerHTML = '<li class="none">Not done yet</li>';
+      return;
+    }
+    $('hist').innerHTML = c.log.slice(0, 10).map(function (ts) {
+      return '<li><span>' + esc(fullWhen(ts)) + '</span><button data-ts="' + ts + '">Remove</button></li>';
+    }).join('');
+  }
+
+  function syncCustom() {
+    $('customWrap').className = $('fFreq').value === 'custom' ? 'field' : 'field hidden';
+  }
+
+  function closeEditor() {
+    document.activeElement && document.activeElement.blur && document.activeElement.blur();
+    $('editorOverlay').className = 'overlay';
+    editId = null;
+  }
+
+  function saveEditor() {
+    var name = $('fName').value.replace(/^\s+|\s+$/g, '');
+    var room = $('fRoom').value.replace(/^\s+|\s+$/g, '');
+    var fv = $('fFreq').value;
+    var freq = fv === 'custom' ? parseInt($('fDays').value, 10) : parseInt(fv, 10);
+    if (!name) { $('editorError').textContent = 'Give the chore a name.'; return; }
+    if (fv === 'custom' && (!freq || freq < 1 || freq > 999)) {
+      $('editorError').textContent = 'Enter a number of days from 1 to 999.';
+      return;
+    }
+    var c = editId ? find(editId) : null;
+    if (c) {
+      c.name = name; c.room = room; c.freq = freq || 0;
+    } else {
+      state.chores.push({ id: uid(), name: name, room: room, freq: freq || 0, log: [] });
+    }
+    save();
+    closeEditor();
+    render();
+  }
+
+  function deleteChore() {
+    if (!deleteArmed) {
+      deleteArmed = true;
+      $('deleteBtn').textContent = 'Tap again to delete';
+      $('deleteBtn').className = 'btn danger armed';
+      return;
+    }
+    state.chores = state.chores.filter(function (c) { return c.id !== editId; });
+    save();
+    closeEditor();
+    render();
+    toast('Chore deleted', false);
+  }
+
+  /* ---------- Backup ---------- */
+
+  function openBackup() {
+    $('exportText').value = JSON.stringify(state);
+    $('importText').value = '';
+    $('importError').textContent = '';
+    restoreArmed = false;
+    $('restoreBtn').textContent = 'Restore from backup';
+    $('restoreBtn').className = 'btn danger';
+    $('copyBtn').textContent = 'Copy backup';
+    $('backupOverlay').className = 'overlay show';
+    $('backupOverlay').scrollTop = 0;
+  }
+
+  function copyBackup() {
+    var ta = $('exportText');
+    var ok = false;
+    ta.removeAttribute('readonly');
+    ta.focus();
+    ta.setSelectionRange(0, ta.value.length);
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    ta.setAttribute('readonly', '');
+    ta.blur();
+    $('copyBtn').textContent = ok ? 'Copied' : 'Select the text and copy it';
+  }
+
+  function restore() {
+    var d;
+    try { d = JSON.parse($('importText').value); } catch (e) { d = null; }
+    if (!isValid(d)) {
+      $('importError').textContent = "That text isn't a chore board backup. Paste the full text from Copy backup.";
+      return;
+    }
+    if (!restoreArmed) {
+      restoreArmed = true;
+      $('restoreBtn').textContent = 'Tap again to replace the board';
+      $('restoreBtn').className = 'btn danger armed';
+      return;
+    }
+    state = normalize(d);
+    save();
+    $('importText').blur();
+    $('backupOverlay').className = 'overlay';
+    render();
+    toast('Board restored', false);
+  }
+
+  /* ---------- Wiring ---------- */
+
+  $('list').addEventListener('click', function (e) {
+    var mv = e.target.closest('[data-move]');
+    var row = e.target.closest('.row');
+    if (!row) return;
+    var id = row.getAttribute('data-id');
+    if (mv) { if (!mv.disabled) move(id, parseInt(mv.getAttribute('data-move'), 10)); return; }
+    if (editing) openEditor(id); else logChore(id);
+  });
+
+  $('editBtn').addEventListener('click', function () { editing = !editing; render(); });
+  $('sortBtn').addEventListener('click', function () {
+    state.sort = state.sort === 'urgent' ? 'manual' : 'urgent';
+    save(); render();
+  });
+  $('addBtn').addEventListener('click', function () { openEditor(null); });
+  $('backupBtn').addEventListener('click', openBackup);
+  $('undoBtn').addEventListener('click', undo);
+
+  $('fFreq').addEventListener('change', syncCustom);
+  $('saveBtn').addEventListener('click', saveEditor);
+  $('cancelBtn').addEventListener('click', closeEditor);
+  $('deleteBtn').addEventListener('click', deleteChore);
+  $('hist').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-ts]');
+    var c = editId ? find(editId) : null;
+    if (!b || !c) return;
+    var ts = parseInt(b.getAttribute('data-ts'), 10);
+    var i = c.log.indexOf(ts);
+    if (i >= 0) c.log.splice(i, 1);
+    save(); renderHistory(); render();
+  });
+
+  $('copyBtn').addEventListener('click', copyBackup);
+  $('restoreBtn').addEventListener('click', restore);
+  $('importText').addEventListener('input', function () {
+    restoreArmed = false;
+    $('restoreBtn').textContent = 'Restore from backup';
+    $('restoreBtn').className = 'btn danger';
+    $('importError').textContent = '';
+  });
+  $('closeBackupBtn').addEventListener('click', function () { $('backupOverlay').className = 'overlay'; });
+
+  // Keep the clock and "last done" text current
+  setInterval(render, 30000);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) render(); });
+
+  state = load();
+  save();
+  render();
+
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('sw.js').catch(function () {});
+    });
+  }
+})();
+</script>
+</body>
+</html>

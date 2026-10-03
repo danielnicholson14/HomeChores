@@ -1,0 +1,9 @@
+{
+  "name": "Chore Board",
+  "short_name": "Chores",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#D9E1E5",
+  "theme_color": "#D9E1E5",
+  "icons": [{ "src": "icon.png", "sizes": "180x180", "type": "image/png" }]
+}
