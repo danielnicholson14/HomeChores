@@ -265,6 +265,9 @@
       <input id="fKey" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
     </div>
     <div class="status" id="syncMsg"></div>
+    <h3>Duplicate chores</h3>
+    <p class="hint">Combines chores with the same name and room into one, keeping every completion. Fixes it on all connected devices.</p>
+    <div style="margin-top:10px"><button class="btn" id="dedupeBtn" style="margin-left:0;background:#E6EBEE">Merge duplicate chores</button></div>
     <div class="mfoot">
       <button class="btn danger" id="disconnectBtn">Stop syncing this device</button>
       <div>
@@ -821,6 +824,35 @@
     toast('Board restored', false);
   }
 
+  /* ---------- Duplicates ---------- */
+
+  // Combines chores with the same name and room. Picks the same survivor on
+  // every device (lowest id) so two devices can't delete each other's copy.
+  function mergeDuplicates() {
+    var groups = {}, merged = 0, now = Date.now();
+    visible().forEach(function (c) {
+      var k = trim(c.name).toLowerCase() + '|' + trim(c.room).toLowerCase();
+      (groups[k] = groups[k] || []).push(c);
+    });
+    Object.keys(groups).forEach(function (k) {
+      var g = groups[k];
+      if (g.length < 2) return;
+      g.sort(function (x, y) { return x.id < y.id ? -1 : 1; });
+      var keep = g[0];
+      g.slice(1).forEach(function (d) {
+        var removed = union(keep.removed, d.removed);
+        keep.removed = removed.slice(0, MAX_REMOVED);
+        keep.log = union(keep.log, d.log).filter(function (t) { return removed.indexOf(t) < 0; }).slice(0, MAX_LOG);
+        if (!keep.freq && d.freq) keep.freq = d.freq;
+        d.deleted = true; d.updatedAt = now;
+        merged++;
+      });
+      keep.updatedAt = now;
+    });
+    if (merged) { changed(); render(); }
+    return merged;
+  }
+
   /* ---------- Sync settings ---------- */
 
   function openSync() {
@@ -844,7 +876,8 @@
     sync(function (ok, msg) {
       $('connectBtn').disabled = false;
       if (ok) {
-        syncMsg('ok', 'Connected. This device now shares the board.');
+        var n = mergeDuplicates();
+        syncMsg('ok', 'Connected. This device now shares the board.' + (n ? ' Merged ' + n + ' duplicate chore' + (n > 1 ? 's' : '') + '.' : ''));
         $('disconnectBtn').className = 'btn danger';
       } else {
         syncMsg('bad', msg === 'Sync key rejected. Check Sync settings.'
@@ -910,6 +943,10 @@
   $('closeBackupBtn').addEventListener('click', function () { blurActive(); $('backupOverlay').className = 'overlay'; });
 
   $('connectBtn').addEventListener('click', connect);
+  $('dedupeBtn').addEventListener('click', function () {
+    var n = mergeDuplicates();
+    syncMsg(n ? 'ok' : '', n ? 'Merged ' + n + ' duplicate chore' + (n > 1 ? 's' : '') + '.' : 'No duplicates found.');
+  });
   $('disconnectBtn').addEventListener('click', disconnect);
   $('closeSyncBtn').addEventListener('click', function () { blurActive(); $('syncOverlay').className = 'overlay'; });
 
