@@ -1,6 +1,6 @@
 // Saves the app on the iPad so it runs without Wi-Fi.
 // Bump VERSION whenever you upload changed files.
-var VERSION = 'choreboard-v1';
+var VERSION = 'choreboard-v2';
 var FILES = ['./', './index.html', './manifest.json', './icon.png'];
 
 self.addEventListener('install', function (e) {

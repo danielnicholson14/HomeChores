@@ -84,6 +84,7 @@
   .empty { padding: 50px 30px; text-align: center; font-size: 20px; color: var(--muted); }
   .actions { margin-top: 16px; display: flex; justify-content: space-between; }
   .actions .btn { margin-left: 0; }
+  .actions div .btn { margin-left: 8px; }
 
   /* Toast */
   .toast { position: fixed; left: 50%; bottom: 28px; -webkit-transform: translate(-50%, 140px); transform: translate(-50%, 140px); background: var(--ink); color: #fff; border-radius: 12px; padding: 14px 14px 14px 22px; font-size: 18px; font-weight: 500; display: flex; align-items: center; max-width: 92%; -webkit-transition: -webkit-transform 0.25s; transition: transform 0.25s; z-index: 15; }
@@ -118,6 +119,15 @@
   .split .field { -webkit-box-flex: 1; flex: 1; }
   .split .field + .field { margin-left: 12px; }
   .hidden { display: none !important; }
+  .sync { font-size: 15px; font-weight: 500; color: var(--muted); margin-top: 8px; }
+  .sync:before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--never); margin-right: 7px; vertical-align: 1px; }
+  .sync.ok:before { background: var(--good); }
+  .sync.busy:before { background: var(--soon); }
+  .sync.bad { color: var(--late); }
+  .sync.bad:before { background: var(--late); }
+  .status { font-size: 16px; font-weight: 500; margin-top: 10px; min-height: 1px; }
+  .status.ok { color: var(--good); }
+  .status.bad { color: var(--late); }
 
   @media (max-width: 700px) {
     .wrap { padding: 14px 12px 30px; }
@@ -138,6 +148,7 @@
     <div>
       <div class="day" id="day"></div>
       <div class="date" id="date"></div>
+      <div class="sync" id="sync"></div>
     </div>
     <div class="right">
       <div class="clock" id="clock"></div>
@@ -158,7 +169,10 @@
 
   <div class="actions hidden" id="actions">
     <button class="btn primary" id="addBtn">Add chore</button>
-    <button class="btn" id="backupBtn">Back up or restore</button>
+    <div>
+      <button class="btn" id="syncBtn">Sync settings</button>
+      <button class="btn" id="backupBtn">Back up or restore</button>
+    </div>
   </div>
 </div>
 
@@ -227,7 +241,7 @@
     <div style="margin-top:10px"><button class="btn primary" id="copyBtn" style="margin-left:0">Copy backup</button></div>
 
     <h3>Restore</h3>
-    <p class="hint">Paste a backup here to replace everything on the board.</p>
+    <p class="hint">Paste a backup here to replace everything on the board. With sync on, this replaces the board on every device.</p>
     <textarea id="importText" placeholder="Paste backup text"></textarea>
     <div class="error" id="importError"></div>
     <div class="mfoot">
@@ -237,32 +251,107 @@
   </div>
 </div>
 
+<!-- Sync settings -->
+<div class="overlay" id="syncOverlay">
+  <div class="modal">
+    <h2>Sync settings</h2>
+    <p class="hint" style="margin-top:0">Paste the web app link and sync key from your Google Sheet setup. Every device using the same link and key shares one board.</p>
+    <div class="field" style="margin-top:16px">
+      <label for="fUrl">Web app link</label>
+      <input id="fUrl" type="url" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="https://script.google.com/macros/s/.../exec">
+    </div>
+    <div class="field">
+      <label for="fKey">Sync key</label>
+      <input id="fKey" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+    </div>
+    <div class="status" id="syncMsg"></div>
+    <div class="mfoot">
+      <button class="btn danger" id="disconnectBtn">Stop syncing this device</button>
+      <div>
+        <button class="btn" id="closeSyncBtn">Close</button>
+        <button class="btn primary" id="connectBtn">Connect</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 (function () {
   'use strict';
 
-  var KEY = 'choreboard.v1';
+  var KEY = 'choreboard.v1';        // board data
+  var PREFS = 'choreboard.prefs';   // this device only: sort, sync link, key
   var DAY = 86400000;
-  var MAX_LOG = 60;
+  var MAX_LOG = 40;
+  var MAX_REMOVED = 40;
 
-  var state;
+  var state, prefs;
   var editing = false;
-  var editId = null;          // chore being edited, null = new chore
-  var lastAction = null;      // { id, ts } for undo
+  var editId = null;
+  var lastAction = null;
   var toastTimer = null;
   var deleteArmed = false;
   var restoreArmed = false;
 
+  var syncing = false, syncAgain = false, syncTimer = null;
+  var syncInfo = { cls: '', text: '' };
+
   function $(id) { return document.getElementById(id); }
-
-  function uid() {
-    return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-  }
-
+  function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
   function esc(s) {
     return String(s).replace(/[&<>"']/g, function (ch) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
     });
+  }
+  function trim(s) { return String(s).replace(/^\s+|\s+$/g, ''); }
+
+  /* ---------- Merge (identical copy lives in Code.gs) ---------- */
+
+  function mergeChores(a, b) {
+    var map = {};
+    var ids = [];
+    function add(c) {
+      if (!c || !c.id) return;
+      if (!map[c.id]) { map[c.id] = mergeOne(c, c); ids.push(c.id); }
+      else map[c.id] = mergeOne(map[c.id], c);
+    }
+    (a || []).forEach(add);
+    (b || []).forEach(add);
+    return ids.map(function (id) { return map[id]; }).sort(function (x, y) {
+      return (x.order - y.order) || (x.id < y.id ? -1 : x.id > y.id ? 1 : 0);
+    });
+  }
+
+  function mergeOne(x, y) {
+    var xu = x.updatedAt || 0, yu = y.updatedAt || 0;
+    var newer = x;
+    if (yu > xu) newer = y;
+    else if (yu === xu && metaKey(y) > metaKey(x)) newer = y;
+    var removed = union(x.removed, y.removed);
+    var log = union(x.log, y.log).filter(function (t) { return removed.indexOf(t) < 0; });
+    return {
+      id: x.id,
+      name: String(newer.name || ''),
+      room: String(newer.room || ''),
+      freq: parseInt(newer.freq, 10) || 0,
+      order: typeof newer.order === 'number' ? newer.order : 0,
+      deleted: !!newer.deleted,
+      updatedAt: newer.updatedAt || 0,
+      log: log.slice(0, MAX_LOG),
+      removed: removed.slice(0, MAX_REMOVED)
+    };
+  }
+
+  function metaKey(c) {
+    return JSON.stringify([c.name || '', c.room || '', parseInt(c.freq, 10) || 0, c.order || 0, !!c.deleted]);
+  }
+
+  function union(p, q) {
+    var seen = {}, out = [];
+    (p || []).concat(q || []).forEach(function (t) {
+      if (typeof t === 'number' && t > 0 && !seen[t]) { seen[t] = true; out.push(t); }
+    });
+    return out.sort(function (m, n) { return n - m; });
   }
 
   /* ---------- Data ---------- */
@@ -280,10 +369,10 @@
       ['Replace furnace filter', 'Basement', 90]
     ];
     return {
-      version: 1,
-      sort: 'urgent',
-      chores: list.map(function (c) {
-        return { id: uid(), name: c[0], room: c[1], freq: c[2], log: [] };
+      version: 2,
+      pristine: true,   // untouched defaults: replaced by the shared board on first sync
+      chores: list.map(function (c, i) {
+        return { id: uid(), name: c[0], room: c[1], freq: c[2], order: i, deleted: false, updatedAt: 0, log: [], removed: [] };
       })
     };
   }
@@ -295,17 +384,23 @@
   }
 
   function normalize(d) {
-    d.version = 1;
-    if (d.sort !== 'manual' && d.sort !== 'urgent') d.sort = 'urgent';
-    d.chores.forEach(function (c) {
+    var chores = d.chores.map(function (c, i) {
       if (!c.id) c.id = uid();
-      c.room = c.room ? String(c.room) : '';
-      c.freq = parseInt(c.freq, 10) || 0;
-      c.log = c.log.filter(function (t) { return typeof t === 'number' && t > 0; })
-                   .sort(function (a, b) { return b - a; })
-                   .slice(0, MAX_LOG);
+      if (typeof c.order !== 'number') c.order = i;
+      return c;
     });
-    return d;
+    return { version: 2, pristine: d.pristine === true, chores: mergeChores(chores, []) };
+  }
+
+  function loadPrefs() {
+    var p = {};
+    try { p = JSON.parse(localStorage.getItem(PREFS)) || {}; } catch (e) { p = {}; }
+    if (p.sort !== 'manual' && p.sort !== 'urgent') p.sort = 'urgent';
+    return p;
+  }
+
+  function savePrefs() {
+    try { localStorage.setItem(PREFS, JSON.stringify(prefs)); } catch (e) { /* ignore */ }
   }
 
   function load() {
@@ -313,13 +408,16 @@
       var raw = localStorage.getItem(KEY);
       if (raw) {
         var d = JSON.parse(raw);
-        if (isValid(d)) return normalize(d);
+        if (isValid(d)) {
+          if (d.sort && !localStorage.getItem(PREFS)) prefs.sort = d.sort; // carry over from v1
+          return normalize(d);
+        }
       }
-    } catch (e) { /* fall through to defaults */ }
+    } catch (e) { /* fall through */ }
     return defaults();
   }
 
-  function save() {
+  function saveLocal() {
     try {
       localStorage.setItem(KEY, JSON.stringify(state));
       $('warn').className = 'warn';
@@ -328,11 +426,85 @@
     }
   }
 
+  // Call after any change the user makes
+  function changed() {
+    state.pristine = false;
+    saveLocal();
+    queueSync(800);
+  }
+
   function find(id) {
     for (var i = 0; i < state.chores.length; i++) {
-      if (state.chores[i].id === id) return state.chores[i];
+      if (state.chores[i].id === id && !state.chores[i].deleted) return state.chores[i];
     }
     return null;
+  }
+
+  function visible() {
+    return state.chores.filter(function (c) { return !c.deleted; });
+  }
+
+  /* ---------- Sync ---------- */
+
+  function syncOn() { return !!(prefs.url && prefs.key); }
+
+  function setSync(cls, text) {
+    syncInfo = { cls: cls, text: text };
+    var el = $('sync');
+    el.className = 'sync ' + cls;
+    el.textContent = text;
+  }
+
+  function idleSyncText() {
+    if (!syncOn()) setSync('', 'Only on this device');
+  }
+
+  function queueSync(delay) {
+    if (!syncOn()) return;
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(sync, delay || 0);
+  }
+
+  function sync(onDone) {
+    if (!syncOn()) { if (onDone) onDone(false, 'Sync is off.'); return; }
+    if (syncing) { syncAgain = true; return; }
+    syncing = true;
+    if (syncInfo.cls !== 'ok') setSync('busy', 'Syncing…');
+
+    var wasPristine = state.pristine;
+    var body = JSON.stringify({ key: prefs.key, chores: wasPristine ? [] : state.chores });
+
+    fetch(prefs.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: body
+    }).then(function (r) {
+      if (!r.ok) throw new Error('http');
+      return r.json();
+    }).then(function (res) {
+      if (res.error === 'bad-key') throw new Error('bad-key');
+      if (res.error || !Array.isArray(res.chores)) throw new Error('server');
+      if (wasPristine && state.pristine) {
+        if (res.chores.length) state.chores = res.chores;   // join the existing shared board
+        else syncAgain = true;                               // first device: upload the starter list
+        state.pristine = false;
+      } else {
+        state.chores = mergeChores(state.chores, res.chores);
+      }
+      saveLocal();
+      setSync('ok', 'Synced at ' + fmtTime(Date.now()));
+      render();
+      if (onDone) onDone(true);
+    }).catch(function (err) {
+      var msg = err && err.message === 'bad-key'
+        ? 'Sync key rejected. Check Sync settings.'
+        : 'Not synced. Will retry.';
+      setSync('bad', msg);
+      if (onDone) onDone(false, msg);
+    }).then(function () {
+      syncing = false;
+      if (syncAgain) { syncAgain = false; queueSync(300); }
+    });
   }
 
   /* ---------- Dates ---------- */
@@ -340,15 +512,12 @@
   function startOfDay(ts) { var d = new Date(ts); d.setHours(0, 0, 0, 0); return d.getTime(); }
   function addDays(ts, n) { var d = new Date(ts); d.setDate(d.getDate() + n); return d.getTime(); }
   function daysBetween(a, b) { return Math.round((startOfDay(b) - startOfDay(a)) / DAY); }
-
-  function fmtTime(ts) {
-    return new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  }
+  function fmtTime(ts) { return new Date(ts).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); }
 
   function whenText(ts, now) {
     var dd = daysBetween(ts, now);
     var d = new Date(ts);
-    if (dd === 0) return 'Today, ' + fmtTime(ts);
+    if (dd <= 0) return 'Today, ' + fmtTime(ts);
     if (dd === 1) return 'Yesterday, ' + fmtTime(ts);
     if (dd < 7) return d.toLocaleDateString([], { weekday: 'long' }) + ', ' + fmtTime(ts);
     var opts = { month: 'short', day: 'numeric' };
@@ -357,8 +526,7 @@
   }
 
   function fullWhen(ts) {
-    var d = new Date(ts);
-    return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) + ', ' + fmtTime(ts);
+    return new Date(ts).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }) + ', ' + fmtTime(ts);
   }
 
   function freqLabel(n) {
@@ -366,18 +534,17 @@
     return map[n] || ('Every ' + n + ' days');
   }
 
-  // Works out colour, bar level and the line under "last done"
   function status(c, now) {
     var last = c.log.length ? c.log[0] : null;
     if (!last) {
       return { cls: 'never', fill: 0, when: 'Never', sub: c.freq ? freqLabel(c.freq) : 'Not done yet', score: 1e9 };
     }
-    var ago = daysBetween(last, now);
+    var ago = Math.max(0, daysBetween(last, now));
     if (!c.freq) {
       return {
         cls: 'open', fill: 1, when: whenText(last, now),
         sub: ago === 0 ? 'Done today' : (ago === 1 ? '1 day ago' : ago + ' days ago'),
-        score: -1e6 + ago   // unscheduled chores sort to the bottom
+        score: -1e6 + ago
       };
     }
     var due = addDays(startOfDay(last), c.freq);
@@ -406,14 +573,15 @@
 
   function render() {
     renderClock();
+    idleSyncText();
     var now = Date.now();
-    var items = state.chores.map(function (c, i) { return { c: c, s: status(c, now), i: i }; });
+    var items = visible().map(function (c, i) { return { c: c, s: status(c, now), i: i }; });
 
-    if (!editing && state.sort === 'urgent') {
+    if (!editing && prefs.sort === 'urgent') {
       items.sort(function (a, b) { return (b.s.score - a.s.score) || (a.i - b.i); });
     }
 
-    $('sortBtn').textContent = state.sort === 'urgent' ? 'Sort: most due' : 'Sort: my order';
+    $('sortBtn').textContent = prefs.sort === 'urgent' ? 'Sort: most due' : 'Sort: my order';
     $('sortBtn').className = editing ? 'btn hidden' : 'btn';
     $('editBtn').textContent = editing ? 'Done' : 'Edit board';
     $('cols').className = editing ? 'cols hidden' : 'cols';
@@ -427,24 +595,23 @@
       return;
     }
 
-    var html = items.map(function (it, idx) {
+    $('list').innerHTML = items.map(function (it, idx) {
       var c = it.c, s = it.s;
-      var move = '';
+      var right;
       if (editing) {
-        move = '<div class="move">' +
+        right = '<div class="move">' +
           '<button data-move="-1" aria-label="Move up"' + (idx === 0 ? ' disabled' : '') + '>&#9650;</button>' +
           '<button data-move="1" aria-label="Move down"' + (idx === items.length - 1 ? ' disabled' : '') + '>&#9660;</button>' +
           '</div>';
+      } else {
+        right = '<div class="last"><div class="when">' + esc(s.when) + '</div><div class="sub">' + esc(s.sub) + '</div></div>';
       }
       return '<div class="row ' + s.cls + '" data-id="' + esc(c.id) + '">' +
         '<div class="bar"><div class="fill" style="height:' + Math.round(s.fill * 100) + '%"></div></div>' +
         '<div class="main"><div class="name">' + esc(c.name) + '</div>' +
           (c.room ? '<div class="room">' + esc(c.room) + '</div>' : '') + '</div>' +
-        (editing ? move :
-          '<div class="last"><div class="when">' + esc(s.when) + '</div><div class="sub">' + esc(s.sub) + '</div></div>') +
-        '</div>';
+        right + '</div>';
     }).join('');
-    $('list').innerHTML = html;
   }
 
   /* ---------- Toast ---------- */
@@ -462,14 +629,21 @@
 
   /* ---------- Actions ---------- */
 
+  function removeCompletion(c, ts) {
+    var i = c.log.indexOf(ts);
+    if (i >= 0) c.log.splice(i, 1);
+    if (c.removed.indexOf(ts) < 0) c.removed.unshift(ts);
+    if (c.removed.length > MAX_REMOVED) c.removed.length = MAX_REMOVED;
+  }
+
   function logChore(id) {
     var c = find(id);
     if (!c) return;
     var now = Date.now();
-    if (c.log.length && now - c.log[0] < 3000) return; // ignore accidental double taps
+    if (c.log.length && Math.abs(now - c.log[0]) < 3000) return; // ignore double taps
     c.log.unshift(now);
     if (c.log.length > MAX_LOG) c.log.length = MAX_LOG;
-    save();
+    changed();
     lastAction = { id: id, ts: now };
     render();
     var row = document.querySelector('.row[data-id="' + id + '"]');
@@ -483,25 +657,25 @@
   function undo() {
     if (!lastAction) return;
     var c = find(lastAction.id);
-    if (c) {
-      var i = c.log.indexOf(lastAction.ts);
-      if (i >= 0) c.log.splice(i, 1);
-      save();
-      render();
-    }
+    if (c) { removeCompletion(c, lastAction.ts); changed(); render(); }
     lastAction = null;
     toast('Undone', false);
   }
 
   function move(id, dir) {
+    var list = visible();
+    var now = Date.now();
+    list.forEach(function (c, k) {              // tidy order numbers first
+      if (c.order !== k) { c.order = k; c.updatedAt = now; }
+    });
     var i = -1;
-    for (var k = 0; k < state.chores.length; k++) if (state.chores[k].id === id) i = k;
+    for (var k = 0; k < list.length; k++) if (list[k].id === id) i = k;
     var j = i + dir;
-    if (i < 0 || j < 0 || j >= state.chores.length) return;
-    var tmp = state.chores[i];
-    state.chores[i] = state.chores[j];
-    state.chores[j] = tmp;
-    save();
+    if (i < 0 || j < 0 || j >= list.length) return;
+    list[i].order = j; list[i].updatedAt = now;
+    list[j].order = i; list[j].updatedAt = now;
+    state.chores.sort(function (x, y) { return x.order - y.order; });
+    changed();
     render();
   }
 
@@ -516,13 +690,8 @@
     $('fName').value = c ? c.name : '';
     $('fRoom').value = c ? c.room : '';
     var f = c ? String(c.freq) : '7';
-    if (PRESETS.indexOf(f) >= 0) {
-      $('fFreq').value = f;
-      $('fDays').value = '';
-    } else {
-      $('fFreq').value = 'custom';
-      $('fDays').value = f;
-    }
+    if (PRESETS.indexOf(f) >= 0) { $('fFreq').value = f; $('fDays').value = ''; }
+    else { $('fFreq').value = 'custom'; $('fDays').value = f; }
     syncCustom();
     $('editorError').textContent = '';
     deleteArmed = false;
@@ -537,10 +706,7 @@
   function renderHistory() {
     var c = editId ? find(editId) : null;
     if (!c) { $('hist').innerHTML = ''; return; }
-    if (!c.log.length) {
-      $('hist').innerHTML = '<li class="none">Not done yet</li>';
-      return;
-    }
+    if (!c.log.length) { $('hist').innerHTML = '<li class="none">Not done yet</li>'; return; }
     $('hist').innerHTML = c.log.slice(0, 10).map(function (ts) {
       return '<li><span>' + esc(fullWhen(ts)) + '</span><button data-ts="' + ts + '">Remove</button></li>';
     }).join('');
@@ -550,15 +716,19 @@
     $('customWrap').className = $('fFreq').value === 'custom' ? 'field' : 'field hidden';
   }
 
+  function blurActive() {
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  }
+
   function closeEditor() {
-    document.activeElement && document.activeElement.blur && document.activeElement.blur();
+    blurActive();
     $('editorOverlay').className = 'overlay';
     editId = null;
   }
 
   function saveEditor() {
-    var name = $('fName').value.replace(/^\s+|\s+$/g, '');
-    var room = $('fRoom').value.replace(/^\s+|\s+$/g, '');
+    var name = trim($('fName').value);
+    var room = trim($('fRoom').value);
     var fv = $('fFreq').value;
     var freq = fv === 'custom' ? parseInt($('fDays').value, 10) : parseInt(fv, 10);
     if (!name) { $('editorError').textContent = 'Give the chore a name.'; return; }
@@ -566,13 +736,18 @@
       $('editorError').textContent = 'Enter a number of days from 1 to 999.';
       return;
     }
-    var c = editId ? find(editId) : null;
-    if (c) {
-      c.name = name; c.room = room; c.freq = freq || 0;
+    var now = Date.now();
+    if (editId) {
+      var c = find(editId);
+      if (!c) { closeEditor(); render(); toast('That chore was deleted on another device', false); return; }
+      c.name = name; c.room = room; c.freq = freq || 0; c.updatedAt = now;
     } else {
-      state.chores.push({ id: uid(), name: name, room: room, freq: freq || 0, log: [] });
+      var maxOrder = -1;
+      state.chores.forEach(function (x) { if (x.order > maxOrder) maxOrder = x.order; });
+      state.chores.push({ id: uid(), name: name, room: room, freq: freq || 0, order: maxOrder + 1,
+                          deleted: false, updatedAt: now, log: [], removed: [] });
     }
-    save();
+    changed();
     closeEditor();
     render();
   }
@@ -584,8 +759,8 @@
       $('deleteBtn').className = 'btn danger armed';
       return;
     }
-    state.chores = state.chores.filter(function (c) { return c.id !== editId; });
-    save();
+    var c = find(editId);
+    if (c) { c.deleted = true; c.updatedAt = Date.now(); changed(); }
     closeEditor();
     render();
     toast('Chore deleted', false);
@@ -594,7 +769,7 @@
   /* ---------- Backup ---------- */
 
   function openBackup() {
-    $('exportText').value = JSON.stringify(state);
+    $('exportText').value = JSON.stringify({ version: 2, chores: state.chores });
     $('importText').value = '';
     $('importError').textContent = '';
     restoreArmed = false;
@@ -630,12 +805,65 @@
       $('restoreBtn').className = 'btn danger armed';
       return;
     }
-    state = normalize(d);
-    save();
-    $('importText').blur();
+    var now = Date.now();
+    var restored = normalize(d).chores;
+    restored.forEach(function (c) { c.updatedAt = now; });
+    var ids = {};
+    restored.forEach(function (c) { ids[c.id] = true; });
+    state.chores.forEach(function (c) {         // anything not in the backup is removed
+      if (!ids[c.id]) { c.deleted = true; c.updatedAt = now; restored.push(c); }
+    });
+    state.chores = restored;
+    changed();
+    blurActive();
     $('backupOverlay').className = 'overlay';
     render();
     toast('Board restored', false);
+  }
+
+  /* ---------- Sync settings ---------- */
+
+  function openSync() {
+    $('fUrl').value = prefs.url || '';
+    $('fKey').value = prefs.key || '';
+    $('syncMsg').className = 'status';
+    $('syncMsg').textContent = syncOn() ? syncInfo.text : 'Sync is off. This board is only on this device.';
+    $('disconnectBtn').className = syncOn() ? 'btn danger' : 'btn danger hidden';
+    $('syncOverlay').className = 'overlay show';
+    $('syncOverlay').scrollTop = 0;
+  }
+
+  function connect() {
+    var url = trim($('fUrl').value);
+    var key = trim($('fKey').value);
+    if (!/^https?:\/\/\S+$/.test(url)) { syncMsg('bad', 'Paste the full web app link, starting with https://'); return; }
+    if (!key) { syncMsg('bad', 'Paste the sync key.'); return; }
+    prefs.url = url; prefs.key = key; savePrefs();
+    syncMsg('', 'Connecting…');
+    $('connectBtn').disabled = true;
+    sync(function (ok, msg) {
+      $('connectBtn').disabled = false;
+      if (ok) {
+        syncMsg('ok', 'Connected. This device now shares the board.');
+        $('disconnectBtn').className = 'btn danger';
+      } else {
+        syncMsg('bad', msg === 'Sync key rejected. Check Sync settings.'
+          ? 'The sync key doesn’t match. Run showKey() in Apps Script to see it.'
+          : 'Couldn’t reach the sync link. Check the link and the Wi-Fi.');
+      }
+    });
+  }
+
+  function syncMsg(cls, text) {
+    $('syncMsg').className = 'status ' + cls;
+    $('syncMsg').textContent = text;
+  }
+
+  function disconnect() {
+    prefs.url = ''; prefs.key = ''; savePrefs();
+    setSync('', 'Only on this device');
+    $('disconnectBtn').className = 'btn danger hidden';
+    syncMsg('', 'Sync is off. This device keeps its current copy of the board.');
   }
 
   /* ---------- Wiring ---------- */
@@ -651,11 +879,12 @@
 
   $('editBtn').addEventListener('click', function () { editing = !editing; render(); });
   $('sortBtn').addEventListener('click', function () {
-    state.sort = state.sort === 'urgent' ? 'manual' : 'urgent';
-    save(); render();
+    prefs.sort = prefs.sort === 'urgent' ? 'manual' : 'urgent';
+    savePrefs(); render();
   });
   $('addBtn').addEventListener('click', function () { openEditor(null); });
   $('backupBtn').addEventListener('click', openBackup);
+  $('syncBtn').addEventListener('click', openSync);
   $('undoBtn').addEventListener('click', undo);
 
   $('fFreq').addEventListener('change', syncCustom);
@@ -666,10 +895,8 @@
     var b = e.target.closest('button[data-ts]');
     var c = editId ? find(editId) : null;
     if (!b || !c) return;
-    var ts = parseInt(b.getAttribute('data-ts'), 10);
-    var i = c.log.indexOf(ts);
-    if (i >= 0) c.log.splice(i, 1);
-    save(); renderHistory(); render();
+    removeCompletion(c, parseInt(b.getAttribute('data-ts'), 10));
+    changed(); renderHistory(); render();
   });
 
   $('copyBtn').addEventListener('click', copyBackup);
@@ -680,15 +907,24 @@
     $('restoreBtn').className = 'btn danger';
     $('importError').textContent = '';
   });
-  $('closeBackupBtn').addEventListener('click', function () { $('backupOverlay').className = 'overlay'; });
+  $('closeBackupBtn').addEventListener('click', function () { blurActive(); $('backupOverlay').className = 'overlay'; });
 
-  // Keep the clock and "last done" text current
-  setInterval(render, 30000);
-  document.addEventListener('visibilitychange', function () { if (!document.hidden) render(); });
+  $('connectBtn').addEventListener('click', connect);
+  $('disconnectBtn').addEventListener('click', disconnect);
+  $('closeSyncBtn').addEventListener('click', function () { blurActive(); $('syncOverlay').className = 'overlay'; });
 
+  // Keep the clock current and pull changes from other devices
+  setInterval(function () { render(); queueSync(0); }, 30000);
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) { render(); queueSync(0); }
+  });
+
+  prefs = loadPrefs();
   state = load();
-  save();
+  saveLocal();
+  savePrefs();
   render();
+  queueSync(0);
 
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
