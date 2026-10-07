@@ -1,7 +1,7 @@
 // Saves the app on the device so it runs without Wi-Fi.
 // When you upload changed files, bump VERSION (and APP_VERSION in index.html).
 // Devices notice the new VERSION and switch over on their own.
-var VERSION = 'choreboard-v4';
+var VERSION = 'choreboard-v5';
 var FILES = ['./', './index.html', './manifest.json', './icon.png'];
 
 self.addEventListener('install', function (e) {

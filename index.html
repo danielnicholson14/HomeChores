@@ -12,167 +12,188 @@
 <title>Chores</title>
 <style>
   :root {
-    --wall: #D9E1E5;
-    --sheet: #F8FAFB;
-    --ink: #1D2B36;
-    --muted: #5B6B77;
-    --line: #C9D3D9;
-    --blue: #285E8E;
-    --good: #3D8B5F;
-    --soon: #D39B17;
-    --late: #C2412D;
-    --never: #9AA7B0;
+    --bg: #F2F4F6;
+    --card: #FFFFFF;
+    --ink: #2B3640;
+    --muted: #8A96A0;
+    --soft: #B4BDC4;
+    --line: #E7EBEE;
+    --blue: #3D7CC9;
+    --good: #4CAF7A;
+    --soon: #D9921C;
+    --late: #D9503D;
     --font: "Avenir Next", "Avenir", "Helvetica Neue", Helvetica, Arial, sans-serif;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { margin: 0; padding: 0; background: var(--wall); color: var(--ink); font-family: var(--font); }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); font-family: var(--font); }
   body { -webkit-text-size-adjust: 100%; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
   button { font-family: var(--font); touch-action: manipulation; cursor: pointer; }
 
-  .wrap { max-width: 980px; margin: 0 auto; padding: 22px 22px 40px; }
+  /* Top bar */
+  .topbar { background: var(--card); border-bottom: 1px solid var(--line); }
+  .tb { max-width: 1100px; margin: 0 auto; padding: 18px 24px 16px; display: flex; align-items: center; justify-content: space-between; }
+  .today { font-size: 26px; font-weight: 600; letter-spacing: -0.2px; }
+  .summary { font-size: 17px; color: var(--muted); margin-top: 3px; font-weight: 500; }
+  .summary .n-late { color: var(--late); }
+  .summary .n-soon { color: var(--soon); }
+  .summary .n-ok { color: var(--good); }
+  .tbr { display: flex; align-items: center; }
+  .clock { font-size: 26px; font-weight: 500; color: var(--ink); margin-right: 22px; }
+  .link { border: 0; background: none; color: var(--blue); font-size: 19px; font-weight: 600; padding: 10px 4px; }
+  .link:active { opacity: 0.5; }
 
-  /* Header */
-  .top { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 18px; }
-  .day { font-size: 40px; font-weight: 700; letter-spacing: -0.5px; line-height: 1; }
-  .date { font-size: 20px; color: var(--muted); font-weight: 500; margin-top: 6px; }
-  .right { text-align: right; }
-  .clock { font-size: 40px; font-weight: 500; line-height: 1; letter-spacing: -0.5px; }
-  .tools { margin-top: 12px; }
-  .btn { display: inline-block; border: 0; border-radius: 10px; padding: 11px 18px; font-size: 18px; font-weight: 600; background: var(--sheet); color: var(--ink); margin-left: 8px; }
-  .btn:active { opacity: 0.6; }
-  .btn.primary { background: var(--blue); color: #fff; }
-  .btn.danger { background: transparent; color: var(--late); padding-left: 0; padding-right: 0; margin-left: 0; }
-  .btn.danger.armed { background: var(--late); color: #fff; padding-left: 18px; padding-right: 18px; }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 14px 24px 40px; }
 
-  /* Board */
-  .sheet { background: var(--sheet); border-radius: 14px; overflow: hidden; box-shadow: 0 1px 0 rgba(29,43,54,0.08), 0 8px 24px -12px rgba(29,43,54,0.25); }
-  .cols { display: flex; padding: 12px 22px 10px 40px; font-size: 15px; font-weight: 600; color: var(--muted); border-bottom: 1px solid var(--line); }
-  .cols .c1 { -webkit-box-flex: 1; flex: 1; }
-  .cols .c2 { width: 36%; }
-  .editnote { padding: 12px 22px; font-size: 16px; color: var(--blue); font-weight: 500; border-bottom: 1px solid var(--line); background: #EAF1F7; }
+  /* Columns: two side by side on wide screens, stacked on phones */
+  .cols { display: flex; align-items: flex-start; }
+  .col { -webkit-box-flex: 1; flex: 1; min-width: 0; }
+  .col + .col { margin-left: 22px; }
 
-  .row { position: relative; display: flex; align-items: center; min-height: 84px; border-bottom: 1px solid var(--line); background: var(--sheet); -webkit-transition: background-color 0.6s; transition: background-color 0.6s; }
-  .row:last-child { border-bottom: 0; }
-  .row:active { background: #EEF2F4; }
-  .row.flash { background: #DCEFE3; -webkit-transition: none; transition: none; }
+  .section { margin-bottom: 18px; }
+  .shead { display: flex; align-items: center; justify-content: space-between; padding: 8px 6px 8px 4px; }
+  .shead span { font-size: 18px; font-weight: 600; color: var(--ink); }
+  .count { min-width: 30px; height: 30px; line-height: 28px; border: 1px solid var(--line); border-radius: 15px; background: var(--card); text-align: center; font-size: 15px; font-weight: 600; color: var(--muted); padding: 0 8px; }
+  .s-late .count { color: var(--late); border-color: #F3CFC9; }
 
-  /* Freshness bar: drains as a chore ages */
-  .bar { align-self: stretch; width: 18px; background: #E6EBEE; position: relative; margin-right: 20px; }
-  .fill { position: absolute; left: 0; right: 0; bottom: 0; -webkit-transition: height 0.5s ease-out; transition: height 0.5s ease-out; }
-  .good .fill { background: var(--good); }
-  .soon .fill { background: var(--soon); }
-  .late .bar { background: var(--late); }
-  .never .bar { background: repeating-linear-gradient(45deg, #E6EBEE, #E6EBEE 6px, #D3DADF 6px, #D3DADF 12px); }
-  .open .fill { background: var(--never); }
+  .group { background: var(--card); border-radius: 14px; overflow: hidden; box-shadow: 0 1px 2px rgba(43,54,64,0.06); }
 
-  .main { -webkit-box-flex: 1; flex: 1; padding: 14px 12px 14px 0; min-width: 0; }
-  .name { font-size: 26px; font-weight: 600; line-height: 1.15; letter-spacing: -0.2px; }
-  .room { font-size: 16px; color: var(--muted); margin-top: 3px; }
-  .last { width: 36%; padding: 14px 22px 14px 0; }
-  .when { font-size: 22px; font-weight: 500; }
-  .sub { font-size: 16px; margin-top: 3px; font-weight: 600; color: var(--muted); }
-  .good .sub { color: var(--good); }
-  .soon .sub { color: #A87908; }
-  .late .sub { color: var(--late); }
-  .never .when { color: var(--never); }
+  .row { position: relative; display: flex; align-items: center; min-height: 74px; padding: 10px 18px 10px 14px; border-left: 6px solid var(--soft); background: var(--card); -webkit-transition: background-color 0.5s; transition: background-color 0.5s; }
+  .row + .row:before { content: ""; position: absolute; top: 0; left: 62px; right: 0; border-top: 1px solid var(--line); }
+  .editlist .row + .row:before { left: 14px; }
+  .row:active { background: #F6F8F9; }
+  .row.flash { background: #E3F4EA; -webkit-transition: none; transition: none; }
 
-  .move { display: flex; flex-direction: column; margin-right: 16px; }
-  .move button { border: 0; background: #E6EBEE; color: var(--ink); width: 54px; height: 34px; font-size: 18px; border-radius: 8px; margin: 3px 0; }
-  .move button:active { background: var(--line); }
+  .check { -webkit-box-flex: 0; flex: none; width: 32px; height: 32px; border-radius: 50%; border: 2px solid #CFD6DB; margin-right: 16px; display: flex; align-items: center; justify-content: center; }
+  .check svg { width: 16px; height: 16px; opacity: 0; }
+  .done .check { background: var(--good); border-color: var(--good); }
+  .done .check svg { opacity: 1; }
+
+  .main { -webkit-box-flex: 1; flex: 1; min-width: 0; }
+  .name { font-size: 20px; font-weight: 500; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sub { font-size: 15px; color: var(--muted); margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .due { -webkit-box-flex: 0; flex: none; margin-left: 12px; font-size: 15px; font-weight: 600; color: var(--muted); text-align: right; }
+  .late .due { color: var(--late); }
+  .soon .due { color: var(--soon); }
+  .done .due { color: var(--good); }
+
+  .move { display: flex; margin-left: 12px; }
+  .move button { border: 1px solid var(--line); background: var(--card); color: var(--muted); width: 44px; height: 40px; font-size: 15px; border-radius: 10px; margin-left: 6px; }
+  .move button:active { background: var(--bg); }
   .move button[disabled] { opacity: 0.3; }
 
-  .empty { padding: 50px 30px; text-align: center; font-size: 20px; color: var(--muted); }
-  .actions { margin-top: 16px; display: flex; justify-content: space-between; }
-  .actions .btn { margin-left: 0; }
-  .actions div .btn { margin-left: 8px; }
+  .editbar { display: flex; align-items: center; justify-content: space-between; padding: 4px 4px 12px; }
+  .editbar p { margin: 0; font-size: 16px; color: var(--muted); }
+  .pill { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 18px; padding: 8px 16px; font-size: 16px; font-weight: 600; }
 
-  /* Toast */
-  .toast { position: fixed; left: 50%; bottom: 28px; -webkit-transform: translate(-50%, 140px); transform: translate(-50%, 140px); background: var(--ink); color: #fff; border-radius: 12px; padding: 14px 14px 14px 22px; font-size: 18px; font-weight: 500; display: flex; align-items: center; max-width: 92%; -webkit-transition: -webkit-transform 0.25s; transition: transform 0.25s; z-index: 15; }
-  .toast.show { -webkit-transform: translate(-50%, 0); transform: translate(-50%, 0); }
-  .toast span { margin-right: 18px; }
-  .toast button { border: 0; background: rgba(255,255,255,0.16); color: #fff; font-size: 18px; font-weight: 600; padding: 9px 16px; border-radius: 8px; }
-  .toast button.hide { display: none; }
+  .empty { padding: 50px 30px; text-align: center; font-size: 19px; color: var(--muted); background: var(--card); border-radius: 14px; }
+  .footer { text-align: center; margin-top: 6px; }
+  .actions { display: flex; flex-wrap: wrap; justify-content: space-between; margin-top: 16px; }
+  .actions div { display: flex; flex-wrap: wrap; }
 
-  .warn { display: none; background: var(--late); color: #fff; padding: 12px 18px; border-radius: 10px; margin-bottom: 14px; font-size: 17px; font-weight: 500; }
-  .warn.show { display: block; }
-
-  /* Sheets (modals) */
-  .overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(29,43,54,0.45); z-index: 20; overflow-y: auto; -webkit-overflow-scrolling: touch; }
-  .overlay.show { display: block; }
-  .modal { background: var(--sheet); border-radius: 16px; max-width: 620px; margin: 40px auto; padding: 24px 26px; -webkit-user-select: text; user-select: text; }
-  .modal h2 { margin: 0 0 18px; font-size: 28px; font-weight: 700; letter-spacing: -0.3px; }
-  .modal h3 { margin: 24px 0 8px; font-size: 18px; font-weight: 600; color: var(--muted); }
-  .field { margin-bottom: 16px; }
-  .field label { display: block; font-size: 16px; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
-  .field input, .field select, .modal textarea { width: 100%; font-family: var(--font); font-size: 20px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink); -webkit-appearance: none; }
-  .field select { background: #fff url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='9'%3E%3Cpath d='M1 1l6 6 6-6' stroke='%235B6B77' stroke-width='2' fill='none'/%3E%3C/svg%3E") no-repeat right 16px center; padding-right: 40px; }
-  .modal textarea { font-size: 14px; height: 150px; font-family: Menlo, Courier, monospace; }
-  .hint { font-size: 15px; color: var(--muted); margin: 6px 0 0; line-height: 1.4; }
-  .error { color: var(--late); font-size: 16px; font-weight: 500; margin-top: 8px; min-height: 1px; }
-  .mfoot { display: flex; justify-content: space-between; align-items: center; margin-top: 22px; }
-  .mfoot .btn { margin-left: 8px; }
-  .hist { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
-  .hist li { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 18px; }
-  .hist button { border: 0; background: none; color: var(--late); font-size: 16px; font-weight: 600; padding: 8px 4px; }
-  .hist .none { color: var(--muted); }
-  .split { display: flex; }
-  .split .field { -webkit-box-flex: 1; flex: 1; }
-  .split .field + .field { margin-left: 12px; }
-  .hidden { display: none !important; }
-  .sync { font-size: 15px; font-weight: 500; color: var(--muted); margin-top: 8px; }
-  .sync:before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--never); margin-right: 7px; vertical-align: 1px; }
+  .sync { display: inline-block; font-size: 14px; font-weight: 500; color: var(--soft); margin-top: 8px; }
+  .sync:before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--soft); margin-right: 7px; vertical-align: 1px; }
   .sync.ok:before { background: var(--good); }
   .sync.busy:before { background: var(--soon); }
   .sync.bad { color: var(--late); }
   .sync.bad:before { background: var(--late); }
-  .status { font-size: 16px; font-weight: 500; margin-top: 10px; min-height: 1px; }
+
+  /* Buttons */
+  .btn { display: inline-block; border: 1px solid var(--line); border-radius: 10px; padding: 11px 18px; font-size: 17px; font-weight: 600; background: var(--card); color: var(--ink); margin-left: 8px; }
+  .btn:active { opacity: 0.6; }
+  .btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .btn.danger { background: transparent; border-color: transparent; color: var(--late); padding-left: 0; padding-right: 0; margin-left: 0; }
+  .btn.danger.armed { background: var(--late); color: #fff; padding-left: 18px; padding-right: 18px; }
+  .actions .btn { margin-left: 0; margin-right: 8px; margin-bottom: 8px; }
+
+  /* Toast */
+  .toast { position: fixed; left: 50%; bottom: 24px; -webkit-transform: translate(-50%, 140px); transform: translate(-50%, 140px); background: var(--ink); color: #fff; border-radius: 14px; padding: 12px 12px 12px 20px; font-size: 17px; font-weight: 500; display: flex; align-items: center; max-width: 92%; -webkit-transition: -webkit-transform 0.25s; transition: transform 0.25s; z-index: 15; box-shadow: 0 6px 20px rgba(43,54,64,0.25); }
+  .toast.show { -webkit-transform: translate(-50%, 0); transform: translate(-50%, 0); }
+  .toast span { margin-right: 16px; }
+  .toast button { border: 0; background: rgba(255,255,255,0.16); color: #fff; font-size: 17px; font-weight: 600; padding: 9px 16px; border-radius: 9px; }
+  .toast button.hide { display: none; }
+
+  .warn { display: none; background: var(--late); color: #fff; padding: 12px 18px; border-radius: 10px; margin-bottom: 14px; font-size: 16px; font-weight: 500; }
+  .warn.show { display: block; }
+
+  /* Sheets (modals) */
+  .overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(43,54,64,0.4); z-index: 20; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .overlay.show { display: block; }
+  .modal { background: var(--card); border-radius: 18px; max-width: 600px; margin: 40px auto; padding: 24px 26px; -webkit-user-select: text; user-select: text; }
+  .modal h2 { margin: 0 0 18px; font-size: 26px; font-weight: 600; letter-spacing: -0.2px; }
+  .modal h3 { margin: 24px 0 8px; font-size: 17px; font-weight: 600; color: var(--muted); }
+  .field { margin-bottom: 16px; }
+  .field label { display: block; font-size: 15px; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
+  .field input, .field select, .modal textarea { width: 100%; font-family: var(--font); font-size: 19px; padding: 12px 14px; border: 1px solid #DCE2E6; border-radius: 10px; background: #fff; color: var(--ink); -webkit-appearance: none; }
+  .field select { background: #fff url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='9'%3E%3Cpath d='M1 1l6 6 6-6' stroke='%238A96A0' stroke-width='2' fill='none'/%3E%3C/svg%3E") no-repeat right 16px center; padding-right: 40px; }
+  .modal textarea { font-size: 14px; height: 150px; font-family: Menlo, Courier, monospace; }
+  .hint { font-size: 15px; color: var(--muted); margin: 6px 0 0; line-height: 1.4; }
+  .error { color: var(--late); font-size: 15px; font-weight: 500; margin-top: 8px; min-height: 1px; }
+  .status { font-size: 15px; font-weight: 500; margin-top: 10px; min-height: 1px; }
   .status.ok { color: var(--good); }
   .status.bad { color: var(--late); }
-  .whochore { font-size: 20px; color: var(--muted); margin: -8px 0 20px; }
-  .whobtn { display: block; width: 100%; border: 0; border-radius: 12px; background: var(--blue); color: #fff; font-size: 28px; font-weight: 600; padding: 22px; margin-bottom: 12px; }
+  .mfoot { display: flex; justify-content: space-between; align-items: center; margin-top: 22px; }
+  .mfoot .btn { margin-left: 8px; }
+  .hist { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+  .hist li { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 17px; }
+  .hist button { border: 0; background: none; color: var(--late); font-size: 15px; font-weight: 600; padding: 8px 4px; }
+  .hist .none { color: var(--muted); }
+  .split { display: flex; }
+  .split .field { -webkit-box-flex: 1; flex: 1; }
+  .split .field + .field { margin-left: 12px; }
+  .whochore { font-size: 19px; color: var(--muted); margin: -8px 0 20px; }
+  .whobtn { display: block; width: 100%; border: 0; border-radius: 14px; background: var(--blue); color: #fff; font-size: 26px; font-weight: 600; padding: 20px; margin-bottom: 12px; }
   .whobtn:active { opacity: 0.7; }
   .addrow { display: flex; margin-top: 14px; }
-  .addrow input { -webkit-box-flex: 1; flex: 1; font-family: var(--font); font-size: 20px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink); -webkit-appearance: none; }
+  .addrow input { -webkit-box-flex: 1; flex: 1; font-family: var(--font); font-size: 19px; padding: 12px 14px; border: 1px solid #DCE2E6; border-radius: 10px; background: #fff; color: var(--ink); -webkit-appearance: none; }
   .addrow .btn { margin-left: 10px; }
   .version { font-size: 14px; color: var(--muted); margin-top: 22px; }
+  .hidden { display: none !important; }
 
-  @media (max-width: 700px) {
-    .wrap { padding: 14px 12px 30px; }
-    .day, .clock { font-size: 30px; }
-    .name { font-size: 21px; }
-    .when { font-size: 18px; }
-    .cols .c2, .last { width: 40%; }
-    .bar { width: 12px; margin-right: 14px; }
+  /* Phones */
+  @media (max-width: 760px) {
+    .tb { padding: 14px 16px 12px; }
+    .today, .clock { font-size: 21px; }
+    .summary { font-size: 15px; }
+    .clock { display: none; }
+    .wrap { padding: 10px 12px 30px; }
+    .cols { display: block; }
+    .col + .col { margin-left: 0; }
+    .row { min-height: 66px; padding: 9px 14px 9px 12px; }
+    .row + .row:before { left: 56px; }
+    .check { width: 28px; height: 28px; margin-right: 14px; }
+    .name { font-size: 18px; }
+    .sub, .due { font-size: 14px; }
+    .modal { margin: 16px 10px; padding: 20px; }
   }
   @media (prefers-reduced-motion: reduce) {
-    .row, .fill, .toast { -webkit-transition: none; transition: none; }
+    .row, .toast { -webkit-transition: none; transition: none; }
   }
 </style>
+
 </head>
 <body ontouchstart="">
-<div class="wrap">
-  <div class="top">
+<div class="topbar">
+  <div class="tb">
     <div>
-      <div class="day" id="day"></div>
-      <div class="date" id="date"></div>
-      <div class="sync" id="sync"></div>
+      <div class="today" id="day"></div>
+      <div class="summary" id="summary"></div>
     </div>
-    <div class="right">
+    <div class="tbr">
       <div class="clock" id="clock"></div>
-      <div class="tools">
-        <button class="btn" id="sortBtn"></button>
-        <button class="btn primary" id="editBtn">Edit board</button>
-      </div>
+      <button class="link" id="editBtn">Edit</button>
     </div>
   </div>
+</div>
 
-  <div class="warn" id="warn">Changes couldn't be saved on this iPad. Make a backup from Edit board before closing the app.</div>
+<div class="wrap">
+  <div class="warn" id="warn">Changes couldn't be saved on this device. Make a backup from Edit before closing the app.</div>
 
-  <div class="sheet">
-    <div class="cols" id="cols"><div class="c1">Chore</div><div class="c2">Last done</div></div>
-    <div class="editnote hidden" id="editnote">Tap a chore to change or delete it. Use the arrows to reorder.</div>
-    <div id="list"></div>
+  <div class="editbar hidden" id="editbar">
+    <p>Tap a chore to change or delete it.</p>
+    <button class="pill" id="sortBtn"></button>
   </div>
+
+  <div id="list"></div>
 
   <div class="actions hidden" id="actions">
     <button class="btn primary" id="addBtn">Add chore</button>
@@ -182,6 +203,8 @@
       <button class="btn" id="backupBtn">Back up or restore</button>
     </div>
   </div>
+
+  <div class="footer"><span class="sync" id="sync"></span></div>
 </div>
 
 <div class="toast" id="toast"><span id="toastText"></span><button id="undoBtn">Undo</button></div>
@@ -329,7 +352,7 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = '4';            // keep in step with VERSION in sw.js
+  var APP_VERSION = '5';            // keep in step with VERSION in sw.js
   var KEY = 'choreboard.v1';        // board data
   var PREFS = 'choreboard.prefs';   // this device only: sort, sync link, key, who this device is
   var DAY = 86400000;
@@ -628,42 +651,82 @@
     return map[n] || ('Every ' + n + ' days');
   }
 
+  // Works out the section, labels and sort score for a chore
   function status(c, now) {
     var last = c.log.length ? c.log[0] : null;
+    var doneToday = !!last && daysBetween(last, now) <= 0;
+    var who = last && c.by && c.by[last] ? ' · ' + c.by[last] : '';
+    var done = last ? 'Done ' + shortWhen(last, now) + who : 'Not done yet';
+    var sub = (c.room ? c.room + ' · ' : '') + done;
+    var base = { done: doneToday, sub: sub };
     if (!last) {
-      return { cls: 'never', fill: 0, when: 'Never', sub: c.freq ? freqLabel(c.freq) : 'Not done yet', score: 1e9 };
+      return extend(base, { cls: 'never', sec: 'soon', due: c.freq ? 'New' : '', score: 1e9 });
     }
-    var who = c.by && c.by[last] ? c.by[last] + ' · ' : '';
     var ago = Math.max(0, daysBetween(last, now));
     if (!c.freq) {
-      return {
-        cls: 'open', fill: 1, when: whenText(last, now),
-        sub: who + (ago === 0 ? 'Done today' : (ago === 1 ? '1 day ago' : ago + ' days ago')),
-        score: -1e6 + ago
-      };
+      return extend(base, { cls: 'open', sec: 'any', due: '', score: -1e6 + ago });
     }
     var due = addDays(startOfDay(last), c.freq);
     var dueEnd = addDays(due, 1);
     var left = daysBetween(now, due);
     var soonAt = Math.max(0, Math.round(c.freq * 0.2));
     var cls = left < 0 ? 'late' : (left <= soonAt ? 'soon' : 'good');
-    var fill = Math.max(0, Math.min(1, (dueEnd - now) / (c.freq * DAY)));
-    var sub;
-    if (left > 1) sub = 'Due in ' + left + ' days';
-    else if (left === 1) sub = 'Due tomorrow';
-    else if (left === 0) sub = 'Due today';
-    else if (left === -1) sub = 'Overdue by 1 day';
-    else sub = 'Overdue by ' + (-left) + ' days';
-    return { cls: cls, fill: fill, when: whenText(last, now), sub: who + sub, score: (now - dueEnd) / (c.freq * DAY) };
+    var label;
+    if (left < -1) label = (-left) + ' days late';
+    else if (left === -1) label = '1 day late';
+    else if (left === 0) label = 'Due today';
+    else if (left === 1) label = 'Tomorrow';
+    else label = 'In ' + left + ' days';
+    return extend(base, {
+      cls: cls, sec: cls === 'good' ? 'later' : cls, due: doneToday ? 'Done today' : label,
+      score: (now - dueEnd) / (c.freq * DAY)
+    });
   }
+
+  // "today 1:31 PM", "yesterday", "Thursday", "Sep 24"
+  function shortWhen(ts, now) {
+    var dd = daysBetween(ts, now), d = new Date(ts);
+    if (dd <= 0) return 'today ' + fmtTime(ts);
+    if (dd === 1) return 'yesterday';
+    if (dd < 7) return d.toLocaleDateString([], { weekday: 'long' });
+    var opts = { month: 'short', day: 'numeric' };
+    if (d.getFullYear() !== new Date(now).getFullYear()) opts.year = 'numeric';
+    return d.toLocaleDateString([], opts);
+  }
+
+  function extend(a, b) { for (var k in b) a[k] = b[k]; return a; }
+
+  // Each room gets its own colour stripe, the same on every device
+  var STRIPES = ['#E8735A', '#F0A63A', '#5BB37A', '#3FA7A0', '#4F8BD6', '#9A72C9', '#D96A9C', '#A3A84B'];
+  function stripe(room) {
+    var r = trim(room || '').toLowerCase();
+    if (!r) return '#C3CBD1';
+    var h = 0;
+    for (var i = 0; i < r.length; i++) h = (h * 31 + r.charCodeAt(i)) | 0;
+    return STRIPES[Math.abs(h) % STRIPES.length];
+  }
+
+  var CHECK = '<svg viewBox="0 0 16 16"><path d="M3 8.5l3.2 3.2L13 4.8" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
   /* ---------- Rendering ---------- */
 
   function renderClock() {
     var now = new Date();
-    $('day').textContent = now.toLocaleDateString([], { weekday: 'long' });
-    $('date').textContent = now.toLocaleDateString([], { month: 'long', day: 'numeric' });
+    $('day').textContent = now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
     $('clock').textContent = fmtTime(now.getTime());
+  }
+
+  function rowHtml(c, s, move) {
+    return '<div class="row ' + s.cls + (s.done ? ' done' : '') + '" data-id="' + esc(c.id) + '" style="border-left-color:' + stripe(c.room) + '">' +
+      (move ? '' : '<span class="check">' + CHECK + '</span>') +
+      '<div class="main"><div class="name">' + esc(c.name) + '</div><div class="sub">' + esc(s.sub) + '</div></div>' +
+      (move || (s.due ? '<div class="due">' + esc(s.due) + '</div>' : '')) +
+      '</div>';
+  }
+
+  function sectionHtml(key, title, rows) {
+    return '<div class="section s-' + key + '"><div class="shead"><span>' + esc(title) + '</span><b class="count">' + rows.length + '</b></div>' +
+      '<div class="group">' + rows.map(function (r) { return r.html; }).join('') + '</div></div>';
   }
 
   function render() {
@@ -672,41 +735,69 @@
     var now = Date.now();
     var items = visible().map(function (c, i) { return { c: c, s: status(c, now), i: i }; });
 
-    if (!editing && prefs.sort === 'urgent') {
-      items.sort(function (a, b) { return (b.s.score - a.s.score) || (a.i - b.i); });
-    }
+    // Summary line under the date
+    var nLate = 0, nToday = 0;
+    items.forEach(function (it) {
+      if (it.s.cls === 'late') nLate++;
+      else if (it.s.due === 'Due today') nToday++;
+    });
+    var parts = [];
+    if (nLate) parts.push('<span class="n-late">' + nLate + ' overdue</span>');
+    if (nToday) parts.push('<span class="n-soon">' + nToday + ' due today</span>');
+    $('summary').innerHTML = items.length ? (parts.length ? parts.join(' · ') : '<span class="n-ok">All caught up</span>') : '';
 
-    $('sortBtn').textContent = prefs.sort === 'urgent' ? 'Sort: most due' : 'Sort: my order';
-    $('sortBtn').className = editing ? 'btn hidden' : 'btn';
-    $('editBtn').textContent = editing ? 'Done' : 'Edit board';
-    $('cols').className = editing ? 'cols hidden' : 'cols';
-    $('editnote').className = editing ? 'editnote' : 'editnote hidden';
+    $('editBtn').textContent = editing ? 'Done' : 'Edit';
+    $('editbar').className = editing ? 'editbar' : 'editbar hidden';
+    $('sortBtn').textContent = prefs.sort === 'urgent' ? 'Order: by due date' : 'Order: my order';
     $('actions').className = editing ? 'actions' : 'actions hidden';
 
     if (!items.length) {
       $('list').innerHTML = '<div class="empty">' + (editing
         ? 'The board is empty. Tap Add chore to put one on it.'
-        : 'No chores yet. Tap Edit board, then Add chore.') + '</div>';
+        : 'No chores yet. Tap Edit, then Add chore.') + '</div>';
       return;
     }
 
-    $('list').innerHTML = items.map(function (it, idx) {
-      var c = it.c, s = it.s;
-      var right;
-      if (editing) {
-        right = '<div class="move">' +
+    // Edit mode: one list in your own order, with move buttons
+    if (editing) {
+      $('list').innerHTML = '<div class="group editlist">' + items.map(function (it, idx) {
+        var move = '<div class="move">' +
           '<button data-move="-1" aria-label="Move up"' + (idx === 0 ? ' disabled' : '') + '>&#9650;</button>' +
-          '<button data-move="1" aria-label="Move down"' + (idx === items.length - 1 ? ' disabled' : '') + '>&#9660;</button>' +
-          '</div>';
-      } else {
-        right = '<div class="last"><div class="when">' + esc(s.when) + '</div><div class="sub">' + esc(s.sub) + '</div></div>';
-      }
-      return '<div class="row ' + s.cls + '" data-id="' + esc(c.id) + '">' +
-        '<div class="bar"><div class="fill" style="height:' + Math.round(s.fill * 100) + '%"></div></div>' +
-        '<div class="main"><div class="name">' + esc(c.name) + '</div>' +
-          (c.room ? '<div class="room">' + esc(c.room) + '</div>' : '') + '</div>' +
-        right + '</div>';
-    }).join('');
+          '<button data-move="1" aria-label="Move down"' + (idx === items.length - 1 ? ' disabled' : '') + '>&#9660;</button></div>';
+        return rowHtml(it.c, it.s, move);
+      }).join('') + '</div>';
+      return;
+    }
+
+    var sections;
+    if (prefs.sort === 'urgent') {
+      items.sort(function (a, b) { return (b.s.score - a.s.score) || (a.i - b.i); });
+      var defs = [['late', 'Overdue'], ['soon', 'Due soon'], ['later', 'Coming up'], ['any', 'Anytime']];
+      sections = defs.map(function (d) {
+        return { key: d[0], title: d[1], rows: items.filter(function (it) { return it.s.sec === d[0]; }) };
+      }).filter(function (s) { return s.rows.length; });
+    } else {
+      sections = [{ key: 'all', title: 'Chores', rows: items }];
+    }
+    sections.forEach(function (s) { s.rows = s.rows.map(function (it) { return { html: rowHtml(it.c, it.s) }; }); });
+
+    // Wide screens: split sections across two columns, keeping their order
+    var wide = window.innerWidth > 760 && sections.length > 1;
+    var cols = [[], []];
+    if (wide) {
+      var total = 0, run = 0;
+      sections.forEach(function (s) { total += s.rows.length + 1; });
+      sections.forEach(function (s, i) {
+        var size = s.rows.length + 1;
+        var left = i === 0 || (cols[1].length === 0 && run + size / 2 <= total / 2);
+        if (left) { cols[0].push(s); run += size; } else cols[1].push(s);
+      });
+    } else {
+      cols[0] = sections;
+    }
+    $('list').innerHTML = '<div class="cols">' + cols.filter(function (c) { return c.length; }).map(function (col) {
+      return '<div class="col">' + col.map(function (s) { return sectionHtml(s.key, s.title, s.rows); }).join('') + '</div>';
+    }).join('') + '</div>';
   }
 
   /* ---------- Toast ---------- */
@@ -1192,6 +1283,8 @@
     queueSync(0);
     checkForUpdate(false);
   }, 30000);
+  var resizeTimer = null;
+  window.addEventListener('resize', function () { clearTimeout(resizeTimer); resizeTimer = setTimeout(render, 150); });
   document.addEventListener('visibilitychange', function () {
     if (document.hidden) return;
     render();
