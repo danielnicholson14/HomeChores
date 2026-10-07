@@ -128,6 +128,13 @@
   .status { font-size: 16px; font-weight: 500; margin-top: 10px; min-height: 1px; }
   .status.ok { color: var(--good); }
   .status.bad { color: var(--late); }
+  .whochore { font-size: 20px; color: var(--muted); margin: -8px 0 20px; }
+  .whobtn { display: block; width: 100%; border: 0; border-radius: 12px; background: var(--blue); color: #fff; font-size: 28px; font-weight: 600; padding: 22px; margin-bottom: 12px; }
+  .whobtn:active { opacity: 0.7; }
+  .addrow { display: flex; margin-top: 14px; }
+  .addrow input { -webkit-box-flex: 1; flex: 1; font-family: var(--font); font-size: 20px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink); -webkit-appearance: none; }
+  .addrow .btn { margin-left: 10px; }
+  .version { font-size: 14px; color: var(--muted); margin-top: 22px; }
 
   @media (max-width: 700px) {
     .wrap { padding: 14px 12px 30px; }
@@ -170,6 +177,7 @@
   <div class="actions hidden" id="actions">
     <button class="btn primary" id="addBtn">Add chore</button>
     <div>
+      <button class="btn" id="peopleBtn">People</button>
       <button class="btn" id="syncBtn">Sync settings</button>
       <button class="btn" id="backupBtn">Back up or restore</button>
     </div>
@@ -251,6 +259,44 @@
   </div>
 </div>
 
+<!-- Who did it -->
+<div class="overlay" id="whoOverlay">
+  <div class="modal">
+    <h2>Who did it?</h2>
+    <div class="whochore" id="whoChore"></div>
+    <div id="whoList"></div>
+    <div class="mfoot">
+      <button class="btn" id="whoSkip" style="margin-left:0">Just mark it done</button>
+      <button class="btn" id="whoCancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- People -->
+<div class="overlay" id="peopleOverlay">
+  <div class="modal">
+    <h2>People</h2>
+    <p class="hint" style="margin-top:0">When there are names here, tapping a chore asks who did it. Names are shared with every synced device. With no names, chores are marked done in one tap.</p>
+    <ul class="hist" id="peopleList" style="margin-top:16px"></ul>
+    <div class="addrow">
+      <input id="fPerson" type="text" autocomplete="off" autocapitalize="words" maxlength="20" placeholder="Add a name">
+      <button class="btn primary" id="addPersonBtn">Add</button>
+    </div>
+    <div class="error" id="peopleError"></div>
+    <div id="meWrap">
+      <h3>This device</h3>
+      <div class="field">
+        <select id="fMe"></select>
+      </div>
+      <p class="hint">On your own phone, pick your name so it never asks. Leave the pantry iPad on Ask each time.</p>
+    </div>
+    <div class="mfoot">
+      <span></span>
+      <button class="btn" id="closePeopleBtn">Done</button>
+    </div>
+  </div>
+</div>
+
 <!-- Sync settings -->
 <div class="overlay" id="syncOverlay">
   <div class="modal">
@@ -268,6 +314,7 @@
     <h3>Duplicate chores</h3>
     <p class="hint">Combines chores with the same name and room into one, keeping every completion. Fixes it on all connected devices.</p>
     <div style="margin-top:10px"><button class="btn" id="dedupeBtn" style="margin-left:0;background:#E6EBEE">Merge duplicate chores</button></div>
+    <p class="version" id="versionInfo"></p>
     <div class="mfoot">
       <button class="btn danger" id="disconnectBtn">Stop syncing this device</button>
       <div>
@@ -282,8 +329,9 @@
 (function () {
   'use strict';
 
+  var APP_VERSION = '4';            // keep in step with VERSION in sw.js
   var KEY = 'choreboard.v1';        // board data
-  var PREFS = 'choreboard.prefs';   // this device only: sort, sync link, key
+  var PREFS = 'choreboard.prefs';   // this device only: sort, sync link, key, who this device is
   var DAY = 86400000;
   var MAX_LOG = 40;
   var MAX_REMOVED = 40;
@@ -295,9 +343,13 @@
   var toastTimer = null;
   var deleteArmed = false;
   var restoreArmed = false;
+  var whoFor = null, whoTimer = null;
 
   var syncing = false, syncAgain = false, syncTimer = null;
   var syncInfo = { cls: '', text: '' };
+  var serverVersion = null;
+
+  var swReg = null, pendingReload = false, lastUpdateCheck = 0;
 
   function $(id) { return document.getElementById(id); }
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
@@ -331,7 +383,7 @@
     if (yu > xu) newer = y;
     else if (yu === xu && metaKey(y) > metaKey(x)) newer = y;
     var removed = union(x.removed, y.removed);
-    var log = union(x.log, y.log).filter(function (t) { return removed.indexOf(t) < 0; });
+    var log = union(x.log, y.log).filter(function (t) { return removed.indexOf(t) < 0; }).slice(0, MAX_LOG);
     return {
       id: x.id,
       name: String(newer.name || ''),
@@ -340,9 +392,41 @@
       order: typeof newer.order === 'number' ? newer.order : 0,
       deleted: !!newer.deleted,
       updatedAt: newer.updatedAt || 0,
-      log: log.slice(0, MAX_LOG),
-      removed: removed.slice(0, MAX_REMOVED)
+      log: log,
+      removed: removed.slice(0, MAX_REMOVED),
+      by: mergeBy(x.by, y.by, log)
     };
+  }
+
+  // Who completed each entry, keyed by timestamp
+  function mergeBy(p, q, log) {
+    var out = {};
+    log.forEach(function (t) {
+      var a = p && typeof p[t] === 'string' ? p[t] : '';
+      var b = q && typeof q[t] === 'string' ? q[t] : '';
+      var v = a > b ? a : b;
+      if (v) out[t] = v;
+    });
+    return out;
+  }
+
+  function mergePeople(a, b) {
+    a = cleanPeople(a);
+    b = cleanPeople(b);
+    if (b.updatedAt > a.updatedAt) return b;
+    if (b.updatedAt === a.updatedAt && JSON.stringify(b.names) > JSON.stringify(a.names)) return b;
+    return a;
+  }
+
+  function cleanPeople(p) {
+    var names = [];
+    if (p && Array.isArray(p.names)) {
+      p.names.forEach(function (n) {
+        n = String(n).replace(/^\s+|\s+$/g, '');
+        if (n && names.indexOf(n) < 0 && names.length < 8) names.push(n);
+      });
+    }
+    return { names: names, updatedAt: (p && p.updatedAt) || 0 };
   }
 
   function metaKey(c) {
@@ -374,8 +458,9 @@
     return {
       version: 2,
       pristine: true,   // untouched defaults: replaced by the shared board on first sync
+      people: cleanPeople(null),
       chores: list.map(function (c, i) {
-        return { id: uid(), name: c[0], room: c[1], freq: c[2], order: i, deleted: false, updatedAt: 0, log: [], removed: [] };
+        return { id: uid(), name: c[0], room: c[1], freq: c[2], order: i, deleted: false, updatedAt: 0, log: [], removed: [], by: {} };
       })
     };
   }
@@ -392,13 +477,14 @@
       if (typeof c.order !== 'number') c.order = i;
       return c;
     });
-    return { version: 2, pristine: d.pristine === true, chores: mergeChores(chores, []) };
+    return { version: 2, pristine: d.pristine === true, people: cleanPeople(d.people), chores: mergeChores(chores, []) };
   }
 
   function loadPrefs() {
     var p = {};
     try { p = JSON.parse(localStorage.getItem(PREFS)) || {}; } catch (e) { p = {}; }
     if (p.sort !== 'manual' && p.sort !== 'urgent') p.sort = 'urgent';
+    if (typeof p.me !== 'string') p.me = '';
     return p;
   }
 
@@ -447,6 +533,8 @@
     return state.chores.filter(function (c) { return !c.deleted; });
   }
 
+  function names() { return state.people.names; }
+
   /* ---------- Sync ---------- */
 
   function syncOn() { return !!(prefs.url && prefs.key); }
@@ -475,7 +563,7 @@
     if (syncInfo.cls !== 'ok') setSync('busy', 'Syncing…');
 
     var wasPristine = state.pristine;
-    var body = JSON.stringify({ key: prefs.key, chores: wasPristine ? [] : state.chores });
+    var body = JSON.stringify({ key: prefs.key, chores: wasPristine ? [] : state.chores, people: state.people });
 
     fetch(prefs.url, {
       method: 'POST',
@@ -487,13 +575,16 @@
     }).then(function (res) {
       if (res.error === 'bad-key') throw new Error('bad-key');
       if (res.error || !Array.isArray(res.chores)) throw new Error('server');
+      serverVersion = res.server || 1;
       if (wasPristine && state.pristine) {
-        if (res.chores.length) state.chores = res.chores;   // join the existing shared board
-        else syncAgain = true;                               // first device: upload the starter list
+        if (res.chores.length) state.chores = mergeChores(res.chores, []);   // join the existing shared board
+        else syncAgain = true;                                               // first device: upload the starter list
         state.pristine = false;
       } else {
         state.chores = mergeChores(state.chores, res.chores);
       }
+      if (res.people) state.people = mergePeople(state.people, res.people);
+      if (prefs.me && names().indexOf(prefs.me) < 0) { prefs.me = ''; savePrefs(); }
       saveLocal();
       setSync('ok', 'Synced at ' + fmtTime(Date.now()));
       render();
@@ -542,11 +633,12 @@
     if (!last) {
       return { cls: 'never', fill: 0, when: 'Never', sub: c.freq ? freqLabel(c.freq) : 'Not done yet', score: 1e9 };
     }
+    var who = c.by && c.by[last] ? c.by[last] + ' · ' : '';
     var ago = Math.max(0, daysBetween(last, now));
     if (!c.freq) {
       return {
         cls: 'open', fill: 1, when: whenText(last, now),
-        sub: ago === 0 ? 'Done today' : (ago === 1 ? '1 day ago' : ago + ' days ago'),
+        sub: who + (ago === 0 ? 'Done today' : (ago === 1 ? '1 day ago' : ago + ' days ago')),
         score: -1e6 + ago
       };
     }
@@ -562,7 +654,7 @@
     else if (left === 0) sub = 'Due today';
     else if (left === -1) sub = 'Overdue by 1 day';
     else sub = 'Overdue by ' + (-left) + ' days';
-    return { cls: cls, fill: fill, when: whenText(last, now), sub: sub, score: (now - dueEnd) / (c.freq * DAY) };
+    return { cls: cls, fill: fill, when: whenText(last, now), sub: who + sub, score: (now - dueEnd) / (c.freq * DAY) };
   }
 
   /* ---------- Rendering ---------- */
@@ -635,17 +727,30 @@
   function removeCompletion(c, ts) {
     var i = c.log.indexOf(ts);
     if (i >= 0) c.log.splice(i, 1);
+    if (c.by) delete c.by[ts];
     if (c.removed.indexOf(ts) < 0) c.removed.unshift(ts);
     if (c.removed.length > MAX_REMOVED) c.removed.length = MAX_REMOVED;
   }
 
-  function logChore(id) {
+  // Tap on a chore: ask who did it if there are names and this device isn't set to one person
+  function tapChore(id) {
+    var c = find(id);
+    if (!c) return;
+    if (c.log.length && Math.abs(Date.now() - c.log[0]) < 3000) return; // ignore double taps
+    if (!names().length) { logChore(id, ''); return; }
+    if (prefs.me) { logChore(id, prefs.me); return; }
+    openWho(id);
+  }
+
+  function logChore(id, who) {
     var c = find(id);
     if (!c) return;
     var now = Date.now();
-    if (c.log.length && Math.abs(now - c.log[0]) < 3000) return; // ignore double taps
+    if (c.log.length && Math.abs(now - c.log[0]) < 3000) return;
     c.log.unshift(now);
     if (c.log.length > MAX_LOG) c.log.length = MAX_LOG;
+    if (!c.by) c.by = {};
+    if (who) c.by[now] = who;
     changed();
     lastAction = { id: id, ts: now };
     render();
@@ -654,7 +759,7 @@
       row.className += ' flash';
       setTimeout(function () { row.className = row.className.replace(' flash', ''); }, 50);
     }
-    toast('Marked done: ' + c.name, true);
+    toast((who ? who + ' did: ' : 'Marked done: ') + c.name, true);
   }
 
   function undo() {
@@ -680,6 +785,79 @@
     state.chores.sort(function (x, y) { return x.order - y.order; });
     changed();
     render();
+  }
+
+  /* ---------- Who did it ---------- */
+
+  function openWho(id) {
+    var c = find(id);
+    if (!c) return;
+    whoFor = id;
+    $('whoChore').textContent = c.name;
+    $('whoList').innerHTML = names().map(function (n, i) {
+      return '<button class="whobtn" data-i="' + i + '">' + esc(n) + '</button>';
+    }).join('');
+    $('whoOverlay').className = 'overlay show';
+    clearTimeout(whoTimer);
+    whoTimer = setTimeout(closeWho, 30000);   // don't leave the question up if nobody answers
+  }
+
+  function closeWho() {
+    clearTimeout(whoTimer);
+    $('whoOverlay').className = 'overlay';
+    whoFor = null;
+  }
+
+  function pickWho(name) {
+    var id = whoFor;
+    closeWho();
+    if (id) logChore(id, name);
+  }
+
+  /* ---------- People ---------- */
+
+  function openPeople() {
+    $('fPerson').value = '';
+    $('peopleError').textContent = '';
+    renderPeople();
+    $('peopleOverlay').className = 'overlay show';
+    $('peopleOverlay').scrollTop = 0;
+  }
+
+  function renderPeople() {
+    var list = names();
+    $('peopleList').innerHTML = list.length
+      ? list.map(function (n, i) {
+          return '<li><span>' + esc(n) + '</span><button data-i="' + i + '">Remove</button></li>';
+        }).join('')
+      : '<li class="none">No names yet. Chores are marked done with one tap.</li>';
+    $('fMe').innerHTML = '<option value="">Ask each time</option>' + list.map(function (n) {
+      return '<option value="' + esc(n) + '">' + esc(n) + '</option>';
+    }).join('');
+    $('fMe').value = prefs.me;
+    $('meWrap').className = list.length ? '' : 'hidden';
+  }
+
+  function setPeople(list) {
+    state.people = cleanPeople({ names: list, updatedAt: Date.now() });
+    if (prefs.me && names().indexOf(prefs.me) < 0) { prefs.me = ''; savePrefs(); }
+    changed();
+    renderPeople();
+  }
+
+  function addPerson() {
+    var n = trim($('fPerson').value);
+    var list = names().slice();
+    if (!n) { $('peopleError').textContent = 'Type a name first.'; return; }
+    if (n.length > 20) { $('peopleError').textContent = 'Keep names to 20 characters.'; return; }
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].toLowerCase() === n.toLowerCase()) { $('peopleError').textContent = n + ' is already on the list.'; return; }
+    }
+    if (list.length >= 8) { $('peopleError').textContent = 'That’s the limit of 8 names.'; return; }
+    list.push(n);
+    $('fPerson').value = '';
+    $('peopleError').textContent = '';
+    setPeople(list);
   }
 
   /* ---------- Editor ---------- */
@@ -711,7 +889,8 @@
     if (!c) { $('hist').innerHTML = ''; return; }
     if (!c.log.length) { $('hist').innerHTML = '<li class="none">Not done yet</li>'; return; }
     $('hist').innerHTML = c.log.slice(0, 10).map(function (ts) {
-      return '<li><span>' + esc(fullWhen(ts)) + '</span><button data-ts="' + ts + '">Remove</button></li>';
+      var who = c.by && c.by[ts] ? ' · ' + c.by[ts] : '';
+      return '<li><span>' + esc(fullWhen(ts) + who) + '</span><button data-ts="' + ts + '">Remove</button></li>';
     }).join('');
   }
 
@@ -748,7 +927,7 @@
       var maxOrder = -1;
       state.chores.forEach(function (x) { if (x.order > maxOrder) maxOrder = x.order; });
       state.chores.push({ id: uid(), name: name, room: room, freq: freq || 0, order: maxOrder + 1,
-                          deleted: false, updatedAt: now, log: [], removed: [] });
+                          deleted: false, updatedAt: now, log: [], removed: [], by: {} });
     }
     changed();
     closeEditor();
@@ -772,7 +951,7 @@
   /* ---------- Backup ---------- */
 
   function openBackup() {
-    $('exportText').value = JSON.stringify({ version: 2, chores: state.chores });
+    $('exportText').value = JSON.stringify({ version: 2, people: state.people, chores: state.chores });
     $('importText').value = '';
     $('importError').textContent = '';
     restoreArmed = false;
@@ -817,6 +996,7 @@
       if (!ids[c.id]) { c.deleted = true; c.updatedAt = now; restored.push(c); }
     });
     state.chores = restored;
+    if (d.people) state.people = cleanPeople({ names: d.people.names, updatedAt: now });
     changed();
     blurActive();
     $('backupOverlay').className = 'overlay';
@@ -843,6 +1023,7 @@
         var removed = union(keep.removed, d.removed);
         keep.removed = removed.slice(0, MAX_REMOVED);
         keep.log = union(keep.log, d.log).filter(function (t) { return removed.indexOf(t) < 0; }).slice(0, MAX_LOG);
+        keep.by = mergeBy(keep.by, d.by, keep.log);
         if (!keep.freq && d.freq) keep.freq = d.freq;
         d.deleted = true; d.updatedAt = now;
         merged++;
@@ -855,12 +1036,22 @@
 
   /* ---------- Sync settings ---------- */
 
+  function versionText() {
+    var t = 'App version ' + APP_VERSION;
+    if (syncOn() && serverVersion !== null) {
+      t += serverVersion >= 2 ? ' · Sheet script up to date'
+                              : ' · Sheet script needs updating (names won’t sync until it is)';
+    }
+    return t;
+  }
+
   function openSync() {
     $('fUrl').value = prefs.url || '';
     $('fKey').value = prefs.key || '';
     $('syncMsg').className = 'status';
     $('syncMsg').textContent = syncOn() ? syncInfo.text : 'Sync is off. This board is only on this device.';
     $('disconnectBtn').className = syncOn() ? 'btn danger' : 'btn danger hidden';
+    $('versionInfo').textContent = versionText();
     $('syncOverlay').className = 'overlay show';
     $('syncOverlay').scrollTop = 0;
   }
@@ -875,6 +1066,7 @@
     $('connectBtn').disabled = true;
     sync(function (ok, msg) {
       $('connectBtn').disabled = false;
+      $('versionInfo').textContent = versionText();
       if (ok) {
         var n = mergeDuplicates();
         syncMsg('ok', 'Connected. This device now shares the board.' + (n ? ' Merged ' + n + ' duplicate chore' + (n > 1 ? 's' : '') + '.' : ''));
@@ -896,7 +1088,30 @@
     prefs.url = ''; prefs.key = ''; savePrefs();
     setSync('', 'Only on this device');
     $('disconnectBtn').className = 'btn danger hidden';
+    $('versionInfo').textContent = versionText();
     syncMsg('', 'Sync is off. This device keeps its current copy of the board.');
+  }
+
+  /* ---------- Updates ---------- */
+
+  function busy() {
+    var ids = ['editorOverlay', 'backupOverlay', 'syncOverlay', 'peopleOverlay', 'whoOverlay'];
+    for (var i = 0; i < ids.length; i++) if ($(ids[i]).className.indexOf('show') >= 0) return true;
+    return editing;
+  }
+
+  // A new version was installed: reload as soon as nobody is mid-edit
+  function applyUpdate() {
+    if (busy()) { pendingReload = true; return; }
+    location.reload();
+  }
+
+  function checkForUpdate(force) {
+    if (!swReg || !swReg.update) return;
+    var now = Date.now();
+    if (!force && now - lastUpdateCheck < 15 * 60000) return;
+    lastUpdateCheck = now;
+    try { swReg.update(); } catch (e) { /* offline or unsupported */ }
   }
 
   /* ---------- Wiring ---------- */
@@ -907,7 +1122,7 @@
     if (!row) return;
     var id = row.getAttribute('data-id');
     if (mv) { if (!mv.disabled) move(id, parseInt(mv.getAttribute('data-move'), 10)); return; }
-    if (editing) openEditor(id); else logChore(id);
+    if (editing) openEditor(id); else tapChore(id);
   });
 
   $('editBtn').addEventListener('click', function () { editing = !editing; render(); });
@@ -916,9 +1131,29 @@
     savePrefs(); render();
   });
   $('addBtn').addEventListener('click', function () { openEditor(null); });
+  $('peopleBtn').addEventListener('click', openPeople);
   $('backupBtn').addEventListener('click', openBackup);
   $('syncBtn').addEventListener('click', openSync);
   $('undoBtn').addEventListener('click', undo);
+
+  $('whoList').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-i]');
+    if (b) pickWho(names()[parseInt(b.getAttribute('data-i'), 10)] || '');
+  });
+  $('whoSkip').addEventListener('click', function () { pickWho(''); });
+  $('whoCancel').addEventListener('click', closeWho);
+
+  $('addPersonBtn').addEventListener('click', addPerson);
+  $('fPerson').addEventListener('keydown', function (e) { if (e.keyCode === 13) addPerson(); });
+  $('peopleList').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-i]');
+    if (!b) return;
+    var list = names().slice();
+    list.splice(parseInt(b.getAttribute('data-i'), 10), 1);
+    setPeople(list);
+  });
+  $('fMe').addEventListener('change', function () { prefs.me = $('fMe').value; savePrefs(); });
+  $('closePeopleBtn').addEventListener('click', function () { blurActive(); $('peopleOverlay').className = 'overlay'; render(); });
 
   $('fFreq').addEventListener('change', syncCustom);
   $('saveBtn').addEventListener('click', saveEditor);
@@ -943,17 +1178,25 @@
   $('closeBackupBtn').addEventListener('click', function () { blurActive(); $('backupOverlay').className = 'overlay'; });
 
   $('connectBtn').addEventListener('click', connect);
+  $('disconnectBtn').addEventListener('click', disconnect);
   $('dedupeBtn').addEventListener('click', function () {
     var n = mergeDuplicates();
     syncMsg(n ? 'ok' : '', n ? 'Merged ' + n + ' duplicate chore' + (n > 1 ? 's' : '') + '.' : 'No duplicates found.');
   });
-  $('disconnectBtn').addEventListener('click', disconnect);
   $('closeSyncBtn').addEventListener('click', function () { blurActive(); $('syncOverlay').className = 'overlay'; });
 
-  // Keep the clock current and pull changes from other devices
-  setInterval(function () { render(); queueSync(0); }, 30000);
+  // Every 30 seconds: refresh the clock, pull changes, look for app updates
+  setInterval(function () {
+    if (pendingReload && !busy()) { location.reload(); return; }
+    render();
+    queueSync(0);
+    checkForUpdate(false);
+  }, 30000);
   document.addEventListener('visibilitychange', function () {
-    if (!document.hidden) { render(); queueSync(0); }
+    if (document.hidden) return;
+    render();
+    queueSync(0);
+    checkForUpdate(true);
   });
 
   prefs = loadPrefs();
@@ -964,8 +1207,18 @@
   queueSync(0);
 
   if ('serviceWorker' in navigator) {
+    var hadController = !!navigator.serviceWorker.controller;
+    var reloading = false;
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (!hadController || reloading) return;   // first install: nothing to refresh
+      reloading = true;
+      applyUpdate();
+    });
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('sw.js').catch(function () {});
+      navigator.serviceWorker.register('sw.js').then(function (reg) {
+        swReg = reg;
+        lastUpdateCheck = Date.now();
+      }).catch(function () {});
     });
   }
 })();
