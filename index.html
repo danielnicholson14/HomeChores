@@ -60,6 +60,12 @@
   .row { position: relative; display: flex; align-items: center; min-height: 74px; padding: 10px 18px 10px 14px; border-left: 6px solid var(--soft); background: var(--card); -webkit-transition: background-color 0.5s; transition: background-color 0.5s; }
   .row + .row:before { content: ""; position: absolute; top: 0; left: 62px; right: 0; border-top: 1px solid var(--line); }
   .editlist .row + .row:before { left: 14px; }
+  .off .name { color: var(--muted); }
+  .seg { display: flex; border: 1px solid #DCE2E6; border-radius: 10px; overflow: hidden; }
+  .seg button { -webkit-box-flex: 1; flex: 1; border: 0; background: #fff; color: var(--ink); font-size: 18px; font-weight: 600; padding: 12px 10px; }
+  .seg button + button { border-left: 1px solid #DCE2E6; }
+  .seg button.on { background: var(--blue); color: #fff; }
+  .offnote { display: block; font-size: 14px; color: var(--soft); margin-top: 6px; }
   .row:active { background: #F6F8F9; }
   .row.flash { background: #E3F4EA; -webkit-transition: none; transition: none; }
 
@@ -204,7 +210,7 @@
     </div>
   </div>
 
-  <div class="footer"><span class="sync" id="sync"></span></div>
+  <div class="footer"><span class="sync" id="sync"></span><span class="offnote" id="offnote"></span></div>
 </div>
 
 <div class="toast" id="toast"><span id="toastText"></span><button id="undoBtn">Undo</button></div>
@@ -220,6 +226,10 @@
     <div class="field">
       <label for="fRoom">Room or note (optional)</label>
       <input id="fRoom" type="text" autocomplete="off" autocapitalize="words" placeholder="e.g. Kitchen">
+    </div>
+    <div class="field">
+      <label>Where</label>
+      <div class="seg" id="fWhere"><button type="button" data-v="in">Inside</button><button type="button" data-v="out">Outdoor</button></div>
     </div>
     <div class="split">
       <div class="field">
@@ -244,7 +254,26 @@
         <input id="fDays" type="number" inputmode="numeric" pattern="[0-9]*" min="1" max="999">
       </div>
     </div>
-    <p class="hint">With a schedule, the bar beside the chore drains and turns yellow, then red, as it comes due.</p>
+    <div class="split">
+      <div class="field">
+        <label for="fSeason">Season</label>
+        <select id="fSeason">
+          <option value="">Year-round</option>
+          <option value="4-11">Spring to fall (Apr–Nov)</option>
+          <option value="5-10">Summer (May–Oct)</option>
+          <option value="11-4">Winter (Nov–Apr)</option>
+          <option value="custom">Custom months…</option>
+        </select>
+      </div>
+      <div class="field hidden" id="seasonWrap">
+        <label for="fFrom">From – to</label>
+        <div class="split">
+          <select id="fFrom"></select>
+          <select id="fTo" style="margin-left:8px"></select>
+        </div>
+      </div>
+    </div>
+    <p class="hint">Outside its season, a chore drops off the board. It comes back on the 1st of its first month, due right away.</p>
     <div class="error" id="editorError"></div>
 
     <div id="histWrap">
@@ -352,7 +381,7 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = '5';            // keep in step with VERSION in sw.js
+  var APP_VERSION = '6';            // keep in step with VERSION in sw.js
   var KEY = 'choreboard.v1';        // board data
   var PREFS = 'choreboard.prefs';   // this device only: sort, sync link, key, who this device is
   var DAY = 86400000;
@@ -417,7 +446,9 @@
       updatedAt: newer.updatedAt || 0,
       log: log,
       removed: removed.slice(0, MAX_REMOVED),
-      by: mergeBy(x.by, y.by, log)
+      by: mergeBy(x.by, y.by, log),
+      outdoor: !!newer.outdoor,
+      season: cleanSeason(newer.season)
     };
   }
 
@@ -453,7 +484,16 @@
   }
 
   function metaKey(c) {
-    return JSON.stringify([c.name || '', c.room || '', parseInt(c.freq, 10) || 0, c.order || 0, !!c.deleted]);
+    return JSON.stringify([c.name || '', c.room || '', parseInt(c.freq, 10) || 0, c.order || 0, !!c.deleted,
+                           !!c.outdoor, cleanSeason(c.season)]);
+  }
+
+  // Season is "from-to" in months, e.g. "4-11" for April to November. Empty means year-round.
+  function cleanSeason(s) {
+    var m = /^(\d{1,2})-(\d{1,2})$/.exec(String(s || ''));
+    if (!m) return '';
+    var f = parseInt(m[1], 10), t = parseInt(m[2], 10);
+    return f >= 1 && f <= 12 && t >= 1 && t <= 12 && f !== t ? f + '-' + t : '';
   }
 
   function union(p, q) {
@@ -599,6 +639,14 @@
       if (res.error === 'bad-key') throw new Error('bad-key');
       if (res.error || !Array.isArray(res.chores)) throw new Error('server');
       serverVersion = res.server || 1;
+      if (serverVersion < 4) {
+        var mine = {};
+        state.chores.forEach(function (c) { mine[c.id] = c; });
+        res.chores.forEach(function (c) {
+          var m = mine[c.id];
+          if (m) { c.outdoor = !!m.outdoor; c.season = cleanSeason(m.season); }
+        });
+      }
       if (wasPristine && state.pristine) {
         if (res.chores.length) state.chores = mergeChores(res.chores, []);   // join the existing shared board
         else syncAgain = true;                                               // first device: upload the starter list
@@ -651,6 +699,36 @@
     return map[n] || ('Every ' + n + ' days');
   }
 
+  /* ---------- Seasons ---------- */
+
+  var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+  function seasonParts(s) {
+    s = cleanSeason(s);
+    if (!s) return null;
+    var p = s.split('-');
+    return { from: parseInt(p[0], 10), to: parseInt(p[1], 10) };
+  }
+
+  function inSeason(p, ts) {
+    var m = new Date(ts).getMonth() + 1;
+    return p.from <= p.to ? (m >= p.from && m <= p.to) : (m >= p.from || m <= p.to);
+  }
+
+  // The 1st of the month the current season started
+  function seasonStart(p, ts) {
+    var d = new Date(ts);
+    var y = d.getFullYear();
+    if (d.getMonth() + 1 < p.from) y--;
+    return new Date(y, p.from - 1, 1).getTime();
+  }
+
+  function seasonLabel(s) {
+    var p = seasonParts(s);
+    if (!p) return '';
+    return MONTHS[p.from - 1].slice(0, 3) + '–' + MONTHS[p.to - 1].slice(0, 3);
+  }
+
   // Works out the section, labels and sort score for a chore
   function status(c, now) {
     var last = c.log.length ? c.log[0] : null;
@@ -658,15 +736,20 @@
     var who = last && c.by && c.by[last] ? ' · ' + c.by[last] : '';
     var done = last ? 'Done ' + shortWhen(last, now) + who : 'Not done yet';
     var sub = (c.room ? c.room + ' · ' : '') + done;
-    var base = { done: doneToday, sub: sub };
+    var base = { done: doneToday, sub: sub, off: false };
+    var sp = seasonParts(c.season);
+    if (sp && !inSeason(sp, now)) {
+      return extend(base, { cls: 'off', off: true, sec: 'off', due: 'Back in ' + MONTHS[sp.from - 1].slice(0, 3), score: -2e6 });
+    }
     if (!last) {
-      return extend(base, { cls: 'never', sec: 'soon', due: c.freq ? 'New' : '', score: 1e9 });
+      return extend(base, { cls: 'never', sec: 'soon', due: c.freq ? 'New' : '', score: 0 });   // treated as due now
     }
     var ago = Math.max(0, daysBetween(last, now));
     if (!c.freq) {
       return extend(base, { cls: 'open', sec: 'any', due: '', score: -1e6 + ago });
     }
     var due = addDays(startOfDay(last), c.freq);
+    if (sp) due = Math.max(due, seasonStart(sp, now));   // a new season starts fresh, not months overdue
     var dueEnd = addDays(due, 1);
     var left = daysBetween(now, due);
     var soonAt = Math.max(0, Math.round(c.freq * 0.2));
@@ -733,7 +816,12 @@
     renderClock();
     idleSyncText();
     var now = Date.now();
-    var items = visible().map(function (c, i) { return { c: c, s: status(c, now), i: i }; });
+    var all = visible().map(function (c, i) { return { c: c, s: status(c, now), i: i }; });
+    var offCount = all.filter(function (it) { return it.s.off; }).length;
+    var items = editing ? all : all.filter(function (it) { return !it.s.off; });
+    $('offnote').textContent = !editing && offCount
+      ? offCount + (offCount > 1 ? ' chores are' : ' chore is') + ' off season and will come back on ' + (offCount > 1 ? 'their' : 'its') + ' own.'
+      : '';
 
     // Summary line under the date
     var nLate = 0, nToday = 0;
@@ -752,33 +840,50 @@
     $('actions').className = editing ? 'actions' : 'actions hidden';
 
     if (!items.length) {
-      $('list').innerHTML = '<div class="empty">' + (editing
+      $('list').innerHTML = '<div class="empty">' + (all.length ? 'Nothing in season right now.' : editing
         ? 'The board is empty. Tap Add chore to put one on it.'
         : 'No chores yet. Tap Edit, then Add chore.') + '</div>';
       return;
     }
 
-    // Edit mode: one list in your own order, with move buttons
+    // Edit mode: Inside and Outdoor lists in your own order, with move buttons
     if (editing) {
-      $('list').innerHTML = '<div class="group editlist">' + items.map(function (it, idx) {
-        var move = '<div class="move">' +
-          '<button data-move="-1" aria-label="Move up"' + (idx === 0 ? ' disabled' : '') + '>&#9650;</button>' +
-          '<button data-move="1" aria-label="Move down"' + (idx === items.length - 1 ? ' disabled' : '') + '>&#9660;</button></div>';
-        return rowHtml(it.c, it.s, move);
-      }).join('') + '</div>';
+      $('list').innerHTML = [[false, 'Inside'], [true, 'Outdoor']].map(function (g) {
+        var list = items.filter(function (it) { return !!it.c.outdoor === g[0]; });
+        if (!list.length) return '';
+        return '<div class="section"><div class="shead"><span>' + g[1] + '</span><b class="count">' + list.length + '</b></div>' +
+          '<div class="group editlist">' + list.map(function (it, idx) {
+            var move = '<div class="move">' +
+              '<button data-move="-1" aria-label="Move up"' + (idx === 0 ? ' disabled' : '') + '>&#9650;</button>' +
+              '<button data-move="1" aria-label="Move down"' + (idx === list.length - 1 ? ' disabled' : '') + '>&#9660;</button></div>';
+            var s = it.s;
+            var extra = [];
+            if (it.c.outdoor || it.c.season) extra.push(it.c.season ? seasonLabel(it.c.season) : 'Year-round');
+            if (s.off) extra.push('off season');
+            if (extra.length) s = extend(extend({}, s), { sub: s.sub + ' · ' + extra.join(', ') });
+            return rowHtml(it.c, s, move);
+          }).join('') + '</div></div>';
+      }).join('');
       return;
     }
 
     var sections;
+    var inside = items.filter(function (it) { return !it.c.outdoor; });
+    var outside = items.filter(function (it) { return !!it.c.outdoor; });
     if (prefs.sort === 'urgent') {
-      items.sort(function (a, b) { return (b.s.score - a.s.score) || (a.i - b.i); });
+      var byScore = function (a, b) { return (b.s.score - a.s.score) || (a.i - b.i); };
+      inside.sort(byScore);
+      outside.sort(byScore);
       var defs = [['late', 'Overdue'], ['soon', 'Due soon'], ['later', 'Coming up'], ['any', 'Anytime']];
       sections = defs.map(function (d) {
-        return { key: d[0], title: d[1], rows: items.filter(function (it) { return it.s.sec === d[0]; }) };
-      }).filter(function (s) { return s.rows.length; });
+        return { key: d[0], title: d[1], rows: inside.filter(function (it) { return it.s.sec === d[0]; }) };
+      });
     } else {
-      sections = [{ key: 'all', title: 'Chores', rows: items }];
+      sections = [{ key: 'all', title: outside.length ? 'Inside' : 'Chores', rows: inside }];
     }
+    var outLate = outside.some(function (it) { return it.s.cls === 'late'; });
+    sections.push({ key: outLate ? 'late out' : 'out', title: 'Outdoor', rows: outside });
+    sections = sections.filter(function (s) { return s.rows.length; });
     sections.forEach(function (s) { s.rows = s.rows.map(function (it) { return { html: rowHtml(it.c, it.s) }; }); });
 
     // Wide screens: split sections across two columns, keeping their order
@@ -862,17 +967,19 @@
   }
 
   function move(id, dir) {
-    var list = visible();
     var now = Date.now();
-    list.forEach(function (c, k) {              // tidy order numbers first
+    visible().forEach(function (c, k) {         // tidy order numbers first
       if (c.order !== k) { c.order = k; c.updatedAt = now; }
     });
-    var i = -1;
-    for (var k = 0; k < list.length; k++) if (list[k].id === id) i = k;
+    var me = find(id);
+    if (!me) return;
+    var list = visible().filter(function (c) { return !!c.outdoor === !!me.outdoor; });   // move within Inside or Outdoor
+    var i = list.indexOf(me);
     var j = i + dir;
     if (i < 0 || j < 0 || j >= list.length) return;
-    list[i].order = j; list[i].updatedAt = now;
-    list[j].order = i; list[j].updatedAt = now;
+    var oi = list[i].order, oj = list[j].order;
+    list[i].order = oj; list[i].updatedAt = now;
+    list[j].order = oi; list[j].updatedAt = now;
     state.chores.sort(function (x, y) { return x.order - y.order; });
     changed();
     render();
@@ -965,6 +1072,14 @@
     if (PRESETS.indexOf(f) >= 0) { $('fFreq').value = f; $('fDays').value = ''; }
     else { $('fFreq').value = 'custom'; $('fDays').value = f; }
     syncCustom();
+    setWhere(c ? !!c.outdoor : false);
+    var s = c ? cleanSeason(c.season) : '';
+    var presets = ['', '4-11', '5-10', '11-4'];
+    if (presets.indexOf(s) >= 0) { $('fSeason').value = s; s = s || '4-11'; }
+    else $('fSeason').value = 'custom';
+    $('fFrom').value = s.split('-')[0];
+    $('fTo').value = s.split('-')[1];
+    syncSeason();
     $('editorError').textContent = '';
     deleteArmed = false;
     $('deleteBtn').textContent = 'Delete chore';
@@ -983,6 +1098,18 @@
       var who = c.by && c.by[ts] ? ' · ' + c.by[ts] : '';
       return '<li><span>' + esc(fullWhen(ts) + who) + '</span><button data-ts="' + ts + '">Remove</button></li>';
     }).join('');
+  }
+
+  var whereOut = false;
+  function setWhere(out) {
+    whereOut = out;
+    var b = $('fWhere').getElementsByTagName('button');
+    b[0].className = out ? '' : 'on';
+    b[1].className = out ? 'on' : '';
+  }
+
+  function syncSeason() {
+    $('seasonWrap').className = $('fSeason').value === 'custom' ? 'field' : 'field hidden';
   }
 
   function syncCustom() {
@@ -1009,16 +1136,20 @@
       $('editorError').textContent = 'Enter a number of days from 1 to 999.';
       return;
     }
+    var sv = $('fSeason').value;
+    var season = sv === 'custom' ? cleanSeason($('fFrom').value + '-' + $('fTo').value) : sv;
+    if (sv === 'custom' && !season) { $('editorError').textContent = 'Pick two different months for the season.'; return; }
     var now = Date.now();
     if (editId) {
       var c = find(editId);
       if (!c) { closeEditor(); render(); toast('That chore was deleted on another device', false); return; }
-      c.name = name; c.room = room; c.freq = freq || 0; c.updatedAt = now;
+      c.name = name; c.room = room; c.freq = freq || 0; c.outdoor = whereOut; c.season = season; c.updatedAt = now;
     } else {
       var maxOrder = -1;
       state.chores.forEach(function (x) { if (x.order > maxOrder) maxOrder = x.order; });
       state.chores.push({ id: uid(), name: name, room: room, freq: freq || 0, order: maxOrder + 1,
-                          deleted: false, updatedAt: now, log: [], removed: [], by: {} });
+                          deleted: false, updatedAt: now, log: [], removed: [], by: {},
+                          outdoor: whereOut, season: season });
     }
     changed();
     closeEditor();
@@ -1130,8 +1261,8 @@
   function versionText() {
     var t = 'App version ' + APP_VERSION;
     if (syncOn() && serverVersion !== null) {
-      t += serverVersion >= 2 ? ' · Sheet script up to date'
-                              : ' · Sheet script needs updating (names won’t sync until it is)';
+      t += serverVersion >= 4 ? ' · Sheet script up to date'
+                              : ' · Sheet script needs updating (outdoor and season settings won’t sync until it is)';
     }
     return t;
   }
@@ -1247,6 +1378,14 @@
   $('closePeopleBtn').addEventListener('click', function () { blurActive(); $('peopleOverlay').className = 'overlay'; render(); });
 
   $('fFreq').addEventListener('change', syncCustom);
+  $('fSeason').addEventListener('change', syncSeason);
+  $('fWhere').addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-v]');
+    if (b) setWhere(b.getAttribute('data-v') === 'out');
+  });
+  $('fFrom').innerHTML = $('fTo').innerHTML = MONTHS.map(function (m, i) {
+    return '<option value="' + (i + 1) + '">' + m + '</option>';
+  }).join('');
   $('saveBtn').addEventListener('click', saveEditor);
   $('cancelBtn').addEventListener('click', closeEditor);
   $('deleteBtn').addEventListener('click', deleteChore);
